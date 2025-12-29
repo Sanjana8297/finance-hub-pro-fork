@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -15,8 +17,19 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Plus,
   Search,
@@ -25,101 +38,22 @@ import {
   Eye,
   Pencil,
   Trash2,
-  Download,
   Send,
   CheckCircle,
-  Clock,
   AlertTriangle,
   FileText,
+  DollarSign,
 } from "lucide-react";
-
-interface Invoice {
-  id: string;
-  invoiceNumber: string;
-  client: string;
-  email: string;
-  amount: number;
-  tax: number;
-  total: number;
-  issueDate: string;
-  dueDate: string;
-  status: "paid" | "sent" | "draft" | "overdue";
-}
-
-const invoices: Invoice[] = [
-  {
-    id: "1",
-    invoiceNumber: "INV-2024-001",
-    client: "Acme Corporation",
-    email: "billing@acme.com",
-    amount: 10000,
-    tax: 2500,
-    total: 12500,
-    issueDate: "Dec 01, 2024",
-    dueDate: "Dec 15, 2024",
-    status: "paid",
-  },
-  {
-    id: "2",
-    invoiceNumber: "INV-2024-002",
-    client: "TechStart Inc",
-    email: "accounts@techstart.io",
-    amount: 7000,
-    tax: 1750,
-    total: 8750,
-    issueDate: "Dec 10, 2024",
-    dueDate: "Dec 28, 2024",
-    status: "sent",
-  },
-  {
-    id: "3",
-    invoiceNumber: "INV-2024-003",
-    client: "Global Solutions",
-    email: "finance@globalsol.com",
-    amount: 20000,
-    tax: 4000,
-    total: 24000,
-    issueDate: "Nov 25, 2024",
-    dueDate: "Dec 10, 2024",
-    status: "overdue",
-  },
-  {
-    id: "4",
-    invoiceNumber: "INV-2024-004",
-    client: "Digital Agency Co",
-    email: "hello@digitalagency.co",
-    amount: 4400,
-    tax: 1100,
-    total: 5500,
-    issueDate: "Dec 20, 2024",
-    dueDate: "Jan 05, 2025",
-    status: "draft",
-  },
-  {
-    id: "5",
-    invoiceNumber: "INV-2024-005",
-    client: "Startup Labs",
-    email: "finance@startuplabs.com",
-    amount: 12000,
-    tax: 3000,
-    total: 15000,
-    issueDate: "Dec 22, 2024",
-    dueDate: "Jan 10, 2025",
-    status: "sent",
-  },
-  {
-    id: "6",
-    invoiceNumber: "INV-2024-006",
-    client: "Enterprise Corp",
-    email: "ap@enterprise.com",
-    amount: 40000,
-    tax: 8000,
-    total: 48000,
-    issueDate: "Dec 15, 2024",
-    dueDate: "Jan 15, 2025",
-    status: "sent",
-  },
-];
+import { format } from "date-fns";
+import { InvoiceDialog } from "@/components/invoices/InvoiceDialog";
+import {
+  useInvoices,
+  useInvoiceStats,
+  useDeleteInvoice,
+  useMarkInvoicePaid,
+  useSendInvoice,
+  Invoice,
+} from "@/hooks/useInvoices";
 
 const statusConfig = {
   paid: {
@@ -145,16 +79,60 @@ const statusConfig = {
 };
 
 const Invoices = () => {
-  const totalRevenue = invoices.reduce((sum, inv) => sum + inv.total, 0);
-  const paidAmount = invoices
-    .filter((inv) => inv.status === "paid")
-    .reduce((sum, inv) => sum + inv.total, 0);
-  const pendingAmount = invoices
-    .filter((inv) => inv.status === "sent")
-    .reduce((sum, inv) => sum + inv.total, 0);
-  const overdueAmount = invoices
-    .filter((inv) => inv.status === "overdue")
-    .reduce((sum, inv) => sum + inv.total, 0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+
+  const { data: invoices, isLoading } = useInvoices();
+  const { data: stats, isLoading: statsLoading } = useInvoiceStats();
+  const deleteInvoice = useDeleteInvoice();
+  const markPaid = useMarkInvoicePaid();
+  const sendInvoice = useSendInvoice();
+
+  const getDisplayStatus = (invoice: Invoice) => {
+    if (invoice.status === "sent" && new Date(invoice.due_date) < new Date()) {
+      return "overdue";
+    }
+    return invoice.status || "draft";
+  };
+
+  const filteredInvoices = invoices?.filter((invoice) => {
+    const matchesSearch =
+      !searchQuery ||
+      invoice.invoice_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      invoice.client_name.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const displayStatus = getDisplayStatus(invoice);
+    const matchesStatus = !statusFilter || displayStatus === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const handleEdit = (invoice: Invoice) => {
+    setSelectedInvoice(invoice);
+    setDialogOpen(true);
+  };
+
+  const handleCreate = () => {
+    setSelectedInvoice(null);
+    setDialogOpen(true);
+  };
+
+  const handleDeleteClick = (invoice: Invoice) => {
+    setInvoiceToDelete(invoice);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (invoiceToDelete) {
+      await deleteInvoice.mutateAsync(invoiceToDelete.id);
+      setDeleteDialogOpen(false);
+      setInvoiceToDelete(null);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -167,7 +145,7 @@ const Invoices = () => {
               Create and manage client invoices
             </p>
           </div>
-          <Button>
+          <Button onClick={handleCreate}>
             <Plus className="mr-2 h-4 w-4" />
             Create Invoice
           </Button>
@@ -178,25 +156,43 @@ const Invoices = () => {
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Total Revenue</p>
-          <p className="text-2xl font-bold">${totalRevenue.toLocaleString()}</p>
+          {statsLoading ? (
+            <Skeleton className="h-8 w-24" />
+          ) : (
+            <p className="text-2xl font-bold">
+              ${stats?.totalRevenue?.toLocaleString() || 0}
+            </p>
+          )}
         </Card>
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Paid</p>
-          <p className="text-2xl font-bold text-success">
-            ${paidAmount.toLocaleString()}
-          </p>
+          {statsLoading ? (
+            <Skeleton className="h-8 w-24" />
+          ) : (
+            <p className="text-2xl font-bold text-success">
+              ${stats?.paidAmount?.toLocaleString() || 0}
+            </p>
+          )}
         </Card>
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Pending</p>
-          <p className="text-2xl font-bold text-info">
-            ${pendingAmount.toLocaleString()}
-          </p>
+          {statsLoading ? (
+            <Skeleton className="h-8 w-24" />
+          ) : (
+            <p className="text-2xl font-bold text-info">
+              ${stats?.pendingAmount?.toLocaleString() || 0}
+            </p>
+          )}
         </Card>
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Overdue</p>
-          <p className="text-2xl font-bold text-destructive">
-            ${overdueAmount.toLocaleString()}
-          </p>
+          {statsLoading ? (
+            <Skeleton className="h-8 w-24" />
+          ) : (
+            <p className="text-2xl font-bold text-destructive">
+              ${stats?.overdueAmount?.toLocaleString() || 0}
+            </p>
+          )}
         </Card>
       </div>
 
@@ -205,18 +201,48 @@ const Invoices = () => {
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search invoices..." className="pl-10" />
+            <Input
+              placeholder="Search invoices..."
+              className="pl-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 h-4 w-4" />
-              Filter
+            <Button
+              variant={statusFilter === null ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter(null)}
+            >
+              All
             </Button>
-            <Button variant="outline" size="sm">
-              All Status
+            <Button
+              variant={statusFilter === "draft" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter("draft")}
+            >
+              Draft
             </Button>
-            <Button variant="outline" size="sm">
-              This Month
+            <Button
+              variant={statusFilter === "sent" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter("sent")}
+            >
+              Sent
+            </Button>
+            <Button
+              variant={statusFilter === "paid" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter("paid")}
+            >
+              Paid
+            </Button>
+            <Button
+              variant={statusFilter === "overdue" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter("overdue")}
+            >
+              Overdue
             </Button>
           </div>
         </CardContent>
@@ -240,79 +266,148 @@ const Invoices = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoices.map((invoice) => {
-                const status = statusConfig[invoice.status];
-                const StatusIcon = status.icon;
-                return (
-                  <TableRow key={invoice.id}>
-                    <TableCell className="font-medium">
-                      {invoice.invoiceNumber}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{invoice.client}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {invoice.email}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>${invoice.amount.toLocaleString()}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      ${invoice.tax.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="font-semibold">
-                      ${invoice.total.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {invoice.issueDate}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {invoice.dueDate}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={status.variant} className="gap-1">
-                        <StatusIcon className="h-3 w-3" />
-                        {status.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
-                            <Eye className="mr-2 h-4 w-4" />
-                            View
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Download className="mr-2 h-4 w-4" />
-                            Download PDF
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Send className="mr-2 h-4 w-4" />
-                            Send Reminder
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 9 }).map((_, j) => (
+                      <TableCell key={j}>
+                        <Skeleton className="h-5 w-full" />
+                      </TableCell>
+                    ))}
                   </TableRow>
-                );
-              })}
+                ))
+              ) : filteredInvoices?.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-12 text-center">
+                    <FileText className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                    <p className="mt-4 text-lg font-medium">No invoices found</p>
+                    <p className="text-sm text-muted-foreground">
+                      Create your first invoice to get started
+                    </p>
+                    <Button className="mt-4" onClick={handleCreate}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Create Invoice
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredInvoices?.map((invoice) => {
+                  const displayStatus = getDisplayStatus(invoice);
+                  const status = statusConfig[displayStatus as keyof typeof statusConfig] || statusConfig.draft;
+                  const StatusIcon = status.icon;
+                  return (
+                    <TableRow key={invoice.id}>
+                      <TableCell className="font-medium">
+                        {invoice.invoice_number}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{invoice.client_name}</p>
+                          {invoice.client_email && (
+                            <p className="text-sm text-muted-foreground">
+                              {invoice.client_email}
+                            </p>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        ${Number(invoice.subtotal).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        ${Number(invoice.tax_amount || 0).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="font-semibold">
+                        ${Number(invoice.total).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {format(new Date(invoice.issue_date), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {format(new Date(invoice.due_date), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={status.variant} className="gap-1">
+                          <StatusIcon className="h-3 w-3" />
+                          {status.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-sm">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleEdit(invoice)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            {invoice.status === "draft" && (
+                              <DropdownMenuItem
+                                onClick={() => sendInvoice.mutate(invoice.id)}
+                              >
+                                <Send className="mr-2 h-4 w-4" />
+                                Mark as Sent
+                              </DropdownMenuItem>
+                            )}
+                            {(invoice.status === "sent" || displayStatus === "overdue") && (
+                              <DropdownMenuItem
+                                onClick={() => markPaid.mutate(invoice.id)}
+                              >
+                                <DollarSign className="mr-2 h-4 w-4" />
+                                Mark as Paid
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDeleteClick(invoice)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      {/* Invoice Dialog */}
+      <InvoiceDialog
+        invoice={selectedInvoice}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Invoice</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete invoice{" "}
+              <strong>{invoiceToDelete?.invoice_number}</strong>? This action
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 };
