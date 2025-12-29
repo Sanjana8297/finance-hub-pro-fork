@@ -162,6 +162,27 @@ const handler = async (req: Request): Promise<Response> => {
         });
 
         const emailResult = await emailResponse.json();
+        const notificationStatus = emailResponse.ok ? "sent" : "failed";
+
+        // Log notification to database
+        await supabase.from("notifications").insert({
+          company_id: invoice.company_id,
+          type: "email",
+          category: "payment_reminder",
+          title: `Payment reminder: Invoice ${invoice.invoice_number}`,
+          message: `${daysOverdue} days overdue - ${formatCurrency(invoice.total)}`,
+          recipient_email: invoice.client_email,
+          recipient_name: invoice.client_name,
+          status: notificationStatus,
+          metadata: { 
+            invoice_id: invoice.id,
+            invoice_number: invoice.invoice_number,
+            amount: invoice.total,
+            days_overdue: daysOverdue
+          },
+          error_message: emailResponse.ok ? null : (emailResult.message || "Failed to send email"),
+          created_by: invoice.created_by,
+        });
 
         if (!emailResponse.ok) {
           console.error(`Failed to send reminder for ${invoice.invoice_number}:`, emailResult);

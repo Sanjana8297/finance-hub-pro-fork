@@ -393,6 +393,65 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          category: string
+          company_id: string | null
+          created_at: string
+          created_by: string | null
+          error_message: string | null
+          id: string
+          message: string | null
+          metadata: Json | null
+          recipient_email: string | null
+          recipient_name: string | null
+          status: string
+          title: string
+          type: string
+          user_id: string | null
+        }
+        Insert: {
+          category: string
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          error_message?: string | null
+          id?: string
+          message?: string | null
+          metadata?: Json | null
+          recipient_email?: string | null
+          recipient_name?: string | null
+          status?: string
+          title: string
+          type: string
+          user_id?: string | null
+        }
+        Update: {
+          category?: string
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          error_message?: string | null
+          id?: string
+          message?: string | null
+          metadata?: Json | null
+          recipient_email?: string | null
+          recipient_name?: string | null
+          status?: string
+          title?: string
+          type?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payslips: {
         Row: {
           allowances: number | null

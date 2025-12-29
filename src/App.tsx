@@ -15,6 +15,7 @@ import Reports from "./pages/Reports";
 import AuditLogs from "./pages/AuditLogs";
 import Users from "./pages/Users";
 import Settings from "./pages/Settings";
+import Notifications from "./pages/Notifications";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -106,6 +107,14 @@ const App = () => (
               element={
                 <ProtectedRoute requiredRoles={["super_admin", "admin"]}>
                   <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/notifications"
+              element={
+                <ProtectedRoute requiredRoles={["super_admin", "admin", "finance_manager", "accountant"]}>
+                  <Notifications />
                 </ProtectedRoute>
               }
             />

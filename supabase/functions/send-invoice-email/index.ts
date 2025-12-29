@@ -207,6 +207,27 @@ const handler = async (req: Request): Promise<Response> => {
 
     const emailResult = await emailResponse.json();
 
+    const notificationStatus = emailResponse.ok ? "sent" : "failed";
+
+    // Log notification to database
+    await supabase.from("notifications").insert({
+      company_id: invoice.company_id,
+      type: "email",
+      category: "invoice",
+      title: `Invoice ${invoice.invoice_number} sent`,
+      message: `Invoice for ${formatCurrency(invoice.total)} sent to ${invoice.client_name}`,
+      recipient_email: recipientEmail,
+      recipient_name: invoice.client_name,
+      status: notificationStatus,
+      metadata: { 
+        invoice_id: invoiceId,
+        invoice_number: invoice.invoice_number,
+        amount: invoice.total
+      },
+      error_message: emailResponse.ok ? null : (emailResult.message || "Failed to send email"),
+      created_by: invoice.created_by,
+    });
+
     if (!emailResponse.ok) {
       console.error("Resend API error:", emailResult);
       throw new Error(emailResult.message || "Failed to send email");

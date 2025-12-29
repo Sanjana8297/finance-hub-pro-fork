@@ -49,6 +49,7 @@ const navItems: NavItem[] = [
   { label: "Payroll", href: "/payroll", icon: Wallet },
   { label: "Employees", href: "/employees", icon: Users },
   { label: "Reports", href: "/reports", icon: FileBarChart },
+  { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Audit Logs", href: "/audit-logs", icon: ScrollText },
   { label: "Users", href: "/users", icon: UserCog },
   { label: "Settings", href: "/settings", icon: Settings },

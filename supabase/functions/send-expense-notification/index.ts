@@ -202,6 +202,32 @@ const handler = async (req: Request): Promise<Response> => {
 
     const emailResult = await emailResponse.json();
 
+    const notificationStatus = emailResponse.ok ? "sent" : "failed";
+    const notificationTitle = `Expense ${statusText}: ${expense.description}`;
+
+    // Log notification to database
+    await supabase.from("notifications").insert({
+      company_id: expense.company_id,
+      user_id: expense.created_by,
+      type: "email",
+      category: "expense",
+      title: notificationTitle,
+      message: isApproved 
+        ? `Your expense of ${formatCurrency(expense.amount)} has been approved`
+        : `Your expense of ${formatCurrency(expense.amount)} has been rejected`,
+      recipient_email: submitterProfile.email,
+      recipient_name: submitterProfile.full_name,
+      status: notificationStatus,
+      metadata: { 
+        expense_id: expenseId, 
+        action,
+        amount: expense.amount,
+        approver_name: approverName
+      },
+      error_message: emailResponse.ok ? null : (emailResult.message || "Failed to send email"),
+      created_by: expense.approved_by,
+    });
+
     if (!emailResponse.ok) {
       console.error("Resend API error:", emailResult);
       throw new Error(emailResult.message || "Failed to send email");
