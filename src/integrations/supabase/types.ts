@@ -305,6 +305,7 @@ export type Database = {
           expense_id: string
           id: string
           policy_id: string
+          resolution_notes: string | null
           resolved: boolean
           resolved_at: string | null
           resolved_by: string | null
@@ -315,6 +316,7 @@ export type Database = {
           expense_id: string
           id?: string
           policy_id: string
+          resolution_notes?: string | null
           resolved?: boolean
           resolved_at?: string | null
           resolved_by?: string | null
@@ -325,6 +327,7 @@ export type Database = {
           expense_id?: string
           id?: string
           policy_id?: string
+          resolution_notes?: string | null
           resolved?: boolean
           resolved_at?: string | null
           resolved_by?: string | null

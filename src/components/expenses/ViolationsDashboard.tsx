@@ -20,6 +20,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -29,6 +37,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -39,6 +53,10 @@ import {
   Tag,
   Filter,
   CheckCheck,
+  Check,
+  User,
+  Clock,
+  FileText,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -53,6 +71,7 @@ type ViolationWithDetails = {
   resolved: boolean;
   resolved_by: string | null;
   resolved_at: string | null;
+  resolution_notes: string | null;
   created_at: string;
   expenses: {
     id: string;
@@ -69,7 +88,8 @@ type ViolationWithDetails = {
     policy_type: string;
     action: string;
   } | null;
-  profiles: { full_name: string | null } | null;
+  submitter_profile: { full_name: string | null } | null;
+  resolver_profile: { full_name: string | null } | null;
 };
 
 const policyTypeIcons = {
@@ -121,20 +141,28 @@ function useAllViolations() {
 
       if (error) throw error;
 
-      // Get unique creator IDs
+      // Get unique creator IDs and resolver IDs
       const creatorIds = [...new Set(
         violations
           .map(v => v.expenses?.created_by)
           .filter(Boolean)
       )] as string[];
 
-      // Fetch profiles for all creators
+      const resolverIds = [...new Set(
+        violations
+          .map(v => v.resolved_by)
+          .filter(Boolean)
+      )] as string[];
+
+      const allUserIds = [...new Set([...creatorIds, ...resolverIds])];
+
+      // Fetch profiles for all users
       let profilesMap: Record<string, { full_name: string | null }> = {};
-      if (creatorIds.length > 0) {
+      if (allUserIds.length > 0) {
         const { data: profiles } = await supabase
           .from("profiles")
           .select("id, full_name")
-          .in("id", creatorIds);
+          .in("id", allUserIds);
 
         if (profiles) {
           profilesMap = profiles.reduce((acc, p) => {
@@ -147,7 +175,8 @@ function useAllViolations() {
       // Merge profiles into violations
       return violations.map(v => ({
         ...v,
-        profiles: v.expenses?.created_by ? profilesMap[v.expenses.created_by] || null : null,
+        submitter_profile: v.expenses?.created_by ? profilesMap[v.expenses.created_by] || null : null,
+        resolver_profile: v.resolved_by ? profilesMap[v.resolved_by] || null : null,
       })) as ViolationWithDetails[];
     },
   });
@@ -167,6 +196,7 @@ function useBulkResolveViolations() {
           resolved: true,
           resolved_by: user.id,
           resolved_at: new Date().toISOString(),
+          resolution_notes: resolutionNotes || null,
         })
         .in("id", ids);
 
@@ -191,15 +221,57 @@ function useBulkResolveViolations() {
   });
 }
 
+function useResolveSingleViolation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, resolutionNotes }: { id: string; resolutionNotes?: string }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { error } = await supabase
+        .from("expense_policy_violations")
+        .update({
+          resolved: true,
+          resolved_by: user.id,
+          resolved_at: new Date().toISOString(),
+          resolution_notes: resolutionNotes || null,
+        })
+        .eq("id", id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["all-policy-violations"] });
+      queryClient.invalidateQueries({ queryKey: ["policy-violations"] });
+      toast({
+        title: "Violation resolved",
+        description: "The policy violation has been marked as resolved",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to resolve violation",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
 export function ViolationsDashboard() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<"all" | "unresolved" | "resolved">("unresolved");
   const [policyTypeFilter, setPolicyTypeFilter] = useState<string>("all");
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
   const [resolutionNotes, setResolutionNotes] = useState("");
+  const [singleResolveDialogOpen, setSingleResolveDialogOpen] = useState(false);
+  const [violationToResolve, setViolationToResolve] = useState<ViolationWithDetails | null>(null);
+  const [singleResolutionNotes, setSingleResolutionNotes] = useState("");
 
   const { data: violations, isLoading } = useAllViolations();
   const bulkResolve = useBulkResolveViolations();
+  const singleResolve = useResolveSingleViolation();
 
   const filteredViolations = violations?.filter((v) => {
     const matchesStatus =
@@ -247,6 +319,23 @@ export function ViolationsDashboard() {
     setSelectedIds(new Set());
     setResolveDialogOpen(false);
     setResolutionNotes("");
+  };
+
+  const handleSingleResolve = (violation: ViolationWithDetails) => {
+    setViolationToResolve(violation);
+    setSingleResolutionNotes("");
+    setSingleResolveDialogOpen(true);
+  };
+
+  const handleSingleResolveConfirm = async () => {
+    if (!violationToResolve) return;
+    await singleResolve.mutateAsync({
+      id: violationToResolve.id,
+      resolutionNotes: singleResolutionNotes,
+    });
+    setSingleResolveDialogOpen(false);
+    setViolationToResolve(null);
+    setSingleResolutionNotes("");
   };
 
   const unresolvedFilteredCount = filteredViolations?.filter((v) => !v.resolved).length || 0;
@@ -375,13 +464,14 @@ export function ViolationsDashboard() {
                   <TableHead>Violation</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 8 }).map((_, j) => (
+                      {Array.from({ length: 9 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-5 w-full" />
                         </TableCell>
@@ -424,7 +514,7 @@ export function ViolationsDashboard() {
                           </div>
                         </TableCell>
                         <TableCell className="text-sm">
-                          {violation.profiles?.full_name || "Unknown"}
+                          {violation.submitter_profile?.full_name || "Unknown"}
                         </TableCell>
                         <TableCell className="font-semibold">
                           ${Number(expense?.amount || 0).toLocaleString()}
@@ -450,15 +540,54 @@ export function ViolationsDashboard() {
                         </TableCell>
                         <TableCell>
                           {violation.resolved ? (
-                            <Badge variant="success" className="gap-1">
-                              <CheckCircle className="h-3 w-3" />
-                              Resolved
-                            </Badge>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="success" className="gap-1 cursor-help">
+                                    <CheckCircle className="h-3 w-3" />
+                                    Resolved
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs">
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-2 text-sm">
+                                      <User className="h-3 w-3" />
+                                      <span>By: {violation.resolver_profile?.full_name || "Unknown"}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-sm">
+                                      <Clock className="h-3 w-3" />
+                                      <span>{violation.resolved_at ? format(new Date(violation.resolved_at), "MMM d, yyyy 'at' h:mm a") : "Unknown"}</span>
+                                    </div>
+                                    {violation.resolution_notes && (
+                                      <div className="flex items-start gap-2 text-sm border-t pt-2">
+                                        <FileText className="h-3 w-3 mt-0.5" />
+                                        <span className="text-muted-foreground">{violation.resolution_notes}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           ) : (
-                            <Badge variant={actionBadgeVariants[policy?.action as keyof typeof actionBadgeVariants] || "warning"} className="gap-1">
-                              <AlertTriangle className="h-3 w-3" />
-                              {policy?.action === "require_approval" ? "Needs Approval" : "Flagged"}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={actionBadgeVariants[policy?.action as keyof typeof actionBadgeVariants] || "warning"} className="gap-1">
+                                <AlertTriangle className="h-3 w-3" />
+                                {policy?.action === "require_approval" ? "Needs Approval" : "Flagged"}
+                              </Badge>
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {!violation.resolved && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleSingleResolve(violation)}
+                              className="gap-1"
+                            >
+                              <Check className="h-3 w-3" />
+                              Resolve
+                            </Button>
                           )}
                         </TableCell>
                       </TableRow>
@@ -502,6 +631,71 @@ export function ViolationsDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Single Resolve Dialog */}
+      <Dialog open={singleResolveDialogOpen} onOpenChange={setSingleResolveDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Resolve Violation</DialogTitle>
+            <DialogDescription>
+              Mark this policy violation as reviewed and acceptable.
+            </DialogDescription>
+          </DialogHeader>
+
+          {violationToResolve && (
+            <div className="space-y-4">
+              {/* Violation Details */}
+              <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Expense</p>
+                  <p className="font-medium">{violationToResolve.expenses?.description}</p>
+                  <p className="text-sm text-muted-foreground">
+                    ${Number(violationToResolve.expenses?.amount || 0).toLocaleString()} • 
+                    Submitted by {violationToResolve.submitter_profile?.full_name || "Unknown"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Policy Violated</p>
+                  <p className="font-medium">{violationToResolve.expense_policies?.name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Violation Details</p>
+                  <p className="text-sm text-warning">{violationToResolve.violation_details}</p>
+                </div>
+              </div>
+
+              {/* Resolution Notes */}
+              <div className="space-y-2">
+                <Label htmlFor="singleNotes">Resolution Notes</Label>
+                <Textarea
+                  id="singleNotes"
+                  placeholder="Explain why this violation is being resolved (e.g., 'Exception approved by CFO', 'One-time business need')..."
+                  value={singleResolutionNotes}
+                  onChange={(e) => setSingleResolutionNotes(e.target.value)}
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Notes will be recorded in the audit trail for compliance purposes.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSingleResolveDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSingleResolveConfirm} 
+              disabled={singleResolve.isPending}
+              className="gap-2"
+            >
+              <CheckCircle className="h-4 w-4" />
+              {singleResolve.isPending ? "Resolving..." : "Resolve Violation"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
