@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Ban } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
@@ -6,7 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { usePolicyViolations, PolicyViolation } from "@/hooks/useExpensePolicies";
+import { usePolicyViolations } from "@/hooks/useExpensePolicies";
 
 interface PolicyViolationBadgeProps {
   expenseId: string;
@@ -29,8 +29,14 @@ export function PolicyViolationBadge({ expenseId }: PolicyViolationBadgeProps) {
           </Badge>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
-          <div className="space-y-1">
-            <p className="font-medium">Policy Violations:</p>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-destructive font-medium">
+              <Ban className="h-3 w-3" />
+              Approval Blocked
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Resolve all violations before this expense can be approved:
+            </p>
             <ul className="text-xs space-y-1">
               {unresolvedViolations.map((v) => (
                 <li key={v.id} className="flex items-start gap-1">
@@ -44,4 +50,11 @@ export function PolicyViolationBadge({ expenseId }: PolicyViolationBadgeProps) {
       </Tooltip>
     </TooltipProvider>
   );
+}
+
+// Hook to check if an expense has unresolved violations
+export function useHasUnresolvedViolations(expenseId: string) {
+  const { data: violations, isLoading } = usePolicyViolations(expenseId);
+  const unresolvedCount = violations?.filter((v) => !v.resolved).length || 0;
+  return { hasUnresolved: unresolvedCount > 0, unresolvedCount, isLoading };
 }
