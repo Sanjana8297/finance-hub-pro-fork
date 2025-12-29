@@ -1,81 +1,58 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { 
-  ArrowUpRight, 
-  ArrowDownRight, 
   FileText, 
   Receipt, 
-  UserPlus,
-  CheckCircle2 
+  CreditCard,
 } from "lucide-react";
-
-interface Activity {
-  id: string;
-  type: "invoice" | "receipt" | "user" | "approval";
-  title: string;
-  description: string;
-  time: string;
-  status?: "success" | "warning" | "info";
-}
-
-const activities: Activity[] = [
-  {
-    id: "1",
-    type: "invoice",
-    title: "Invoice #INV-2024-001 created",
-    description: "New invoice for Acme Corp - $12,500.00",
-    time: "2 minutes ago",
-    status: "info",
-  },
-  {
-    id: "2",
-    type: "receipt",
-    title: "Receipt verified",
-    description: "Office supplies - $234.50",
-    time: "15 minutes ago",
-    status: "success",
-  },
-  {
-    id: "3",
-    type: "approval",
-    title: "Expense approved",
-    description: "Travel expenses by Sarah Johnson",
-    time: "1 hour ago",
-    status: "success",
-  },
-  {
-    id: "4",
-    type: "user",
-    title: "New employee added",
-    description: "Michael Chen - Engineering",
-    time: "3 hours ago",
-    status: "info",
-  },
-  {
-    id: "5",
-    type: "invoice",
-    title: "Invoice #INV-2024-098 paid",
-    description: "Payment received from TechStart Inc",
-    time: "5 hours ago",
-    status: "success",
-  },
-];
+import { useRecentActivity } from "@/hooks/useDashboardStats";
+import { formatDistanceToNow } from "date-fns";
 
 const iconMap = {
   invoice: FileText,
   receipt: Receipt,
-  user: UserPlus,
-  approval: CheckCircle2,
+  expense: CreditCard,
 };
 
 const iconColorMap = {
   invoice: "bg-info/10 text-info",
   receipt: "bg-warning/10 text-warning",
-  user: "bg-primary/10 text-primary",
-  approval: "bg-success/10 text-success",
+  expense: "bg-destructive/10 text-destructive",
+};
+
+const statusBadgeVariant: Record<string, "success" | "warning" | "destructive" | "muted"> = {
+  paid: "success",
+  verified: "success",
+  approved: "success",
+  pending: "warning",
+  sent: "warning",
+  rejected: "destructive",
+  draft: "muted",
 };
 
 export function RecentActivity() {
+  const { data: activities, isLoading } = useRecentActivity();
+
+  if (isLoading) {
+    return (
+      <Card className="h-full">
+        <CardHeader className="pb-3">
+          <Skeleton className="h-6 w-40" />
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} className="h-16 w-full" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const activityList = activities || [];
+
   return (
     <Card className="h-full">
       <CardHeader className="pb-3">
@@ -85,30 +62,43 @@ export function RecentActivity() {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          {activities.map((activity) => {
-            const Icon = iconMap[activity.type];
-            const iconColor = iconColorMap[activity.type];
-            
-            return (
-              <div
-                key={activity.id}
-                className="flex items-start gap-4 rounded-lg p-3 transition-colors hover:bg-muted/50"
-              >
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconColor}`}>
-                  <Icon className="h-5 w-5" />
+        {activityList.length === 0 ? (
+          <div className="flex h-40 items-center justify-center text-muted-foreground">
+            No recent activity
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {activityList.map((activity) => {
+              const Icon = iconMap[activity.type];
+              const iconColor = iconColorMap[activity.type];
+              
+              return (
+                <div
+                  key={activity.id}
+                  className="flex items-start gap-4 rounded-lg p-3 transition-colors hover:bg-muted/50"
+                >
+                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconColor}`}>
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <p className="text-sm font-medium leading-none">{activity.description}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-muted-foreground">
+                        ${activity.amount.toLocaleString()}
+                      </p>
+                      <Badge variant={statusBadgeVariant[activity.status] || "muted"} className="text-xs">
+                        {activity.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {formatDistanceToNow(new Date(activity.date), { addSuffix: true })}
+                  </span>
                 </div>
-                <div className="flex-1 space-y-1">
-                  <p className="text-sm font-medium leading-none">{activity.title}</p>
-                  <p className="text-sm text-muted-foreground">{activity.description}</p>
-                </div>
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {activity.time}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
