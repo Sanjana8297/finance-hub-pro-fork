@@ -33,9 +33,7 @@ import {
 import {
   Plus,
   Search,
-  Filter,
   MoreHorizontal,
-  Eye,
   Pencil,
   Trash2,
   Send,
@@ -43,17 +41,23 @@ import {
   AlertTriangle,
   FileText,
   DollarSign,
+  Download,
+  Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { InvoiceDialog } from "@/components/invoices/InvoiceDialog";
+import { generateInvoicePDF, downloadPDF } from "@/components/invoices/InvoicePDF";
 import {
   useInvoices,
   useInvoiceStats,
+  useInvoiceItems,
   useDeleteInvoice,
   useMarkInvoicePaid,
   useSendInvoice,
   Invoice,
 } from "@/hooks/useInvoices";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 const statusConfig = {
   paid: {
@@ -85,12 +89,44 @@ const Invoices = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const { data: invoices, isLoading } = useInvoices();
   const { data: stats, isLoading: statsLoading } = useInvoiceStats();
   const deleteInvoice = useDeleteInvoice();
   const markPaid = useMarkInvoicePaid();
   const sendInvoice = useSendInvoice();
+
+  const handleDownloadPDF = async (invoice: Invoice) => {
+    try {
+      setDownloadingId(invoice.id);
+      
+      // Fetch invoice items
+      const { data: items, error } = await supabase
+        .from("invoice_items")
+        .select("*")
+        .eq("invoice_id", invoice.id);
+      
+      if (error) throw error;
+      
+      const blob = await generateInvoicePDF(invoice, items || []);
+      downloadPDF(blob, `${invoice.invoice_number}.pdf`);
+      
+      toast({
+        title: "PDF downloaded",
+        description: `Invoice ${invoice.invoice_number} has been downloaded`,
+      });
+    } catch (error) {
+      console.error("PDF generation failed:", error);
+      toast({
+        title: "Download failed",
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const getDisplayStatus = (invoice: Invoice) => {
     if (invoice.status === "sent" && new Date(invoice.due_date) < new Date()) {
@@ -342,6 +378,17 @@ const Invoices = () => {
                             <DropdownMenuItem onClick={() => handleEdit(invoice)}>
                               <Pencil className="mr-2 h-4 w-4" />
                               Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => handleDownloadPDF(invoice)}
+                              disabled={downloadingId === invoice.id}
+                            >
+                              {downloadingId === invoice.id ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="mr-2 h-4 w-4" />
+                              )}
+                              Download PDF
                             </DropdownMenuItem>
                             {invoice.status === "draft" && (
                               <DropdownMenuItem
