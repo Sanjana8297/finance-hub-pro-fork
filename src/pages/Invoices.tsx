@@ -44,6 +44,7 @@ import {
   Download,
   Loader2,
   Mail,
+  Clock,
 } from "lucide-react";
 import { format } from "date-fns";
 import { InvoiceDialog } from "@/components/invoices/InvoiceDialog";
@@ -95,6 +96,7 @@ const Invoices = () => {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [invoiceToSend, setInvoiceToSend] = useState<Invoice | null>(null);
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
 
   const { data: invoices, isLoading } = useInvoices();
   const { data: stats, isLoading: statsLoading } = useInvoiceStats();
@@ -136,6 +138,45 @@ const Invoices = () => {
       });
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const handleSendReminder = async (invoice: Invoice) => {
+    if (!invoice.client_email) {
+      toast({
+        title: "Cannot send reminder",
+        description: "This invoice has no client email address",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setSendingReminderId(invoice.id);
+      
+      const { data, error } = await supabase.functions.invoke("send-payment-reminder", {
+        body: { invoiceId: invoice.id },
+      });
+
+      if (error) throw error;
+
+      if (data.results?.[0]?.success) {
+        toast({
+          title: "Reminder sent",
+          description: `Payment reminder sent to ${invoice.client_email}`,
+        });
+      } else {
+        throw new Error(data.results?.[0]?.error || "Failed to send reminder");
+      }
+    } catch (error: any) {
+      console.error("Failed to send reminder:", error);
+      toast({
+        title: "Failed to send reminder",
+        description: error.message || "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingReminderId(null);
     }
   };
 
@@ -419,12 +460,25 @@ const Invoices = () => {
                               </DropdownMenuItem>
                             )}
                             {(invoice.status === "sent" || displayStatus === "overdue") && (
-                              <DropdownMenuItem
-                                onClick={() => markPaid.mutate(invoice.id)}
-                              >
-                                <DollarSign className="mr-2 h-4 w-4" />
-                                Mark as Paid
-                              </DropdownMenuItem>
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => markPaid.mutate(invoice.id)}
+                                >
+                                  <DollarSign className="mr-2 h-4 w-4" />
+                                  Mark as Paid
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleSendReminder(invoice)}
+                                  disabled={sendingReminderId === invoice.id}
+                                >
+                                  {sendingReminderId === invoice.id ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Clock className="mr-2 h-4 w-4" />
+                                  )}
+                                  Send Payment Reminder
+                                </DropdownMenuItem>
+                              </>
                             )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

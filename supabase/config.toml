@@ -8,3 +8,6 @@ verify_jwt = true
 
 [functions.send-invoice-email]
 verify_jwt = true
+
+[functions.send-payment-reminder]
+verify_jwt = true
