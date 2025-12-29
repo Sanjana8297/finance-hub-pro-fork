@@ -43,9 +43,11 @@ import {
   DollarSign,
   Download,
   Loader2,
+  Mail,
 } from "lucide-react";
 import { format } from "date-fns";
 import { InvoiceDialog } from "@/components/invoices/InvoiceDialog";
+import { SendInvoiceDialog } from "@/components/invoices/SendInvoiceDialog";
 import { generateInvoicePDF, downloadPDF } from "@/components/invoices/InvoicePDF";
 import {
   useInvoices,
@@ -90,6 +92,8 @@ const Invoices = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [invoiceToSend, setInvoiceToSend] = useState<Invoice | null>(null);
 
   const { data: invoices, isLoading } = useInvoices();
   const { data: stats, isLoading: statsLoading } = useInvoiceStats();
@@ -390,6 +394,15 @@ const Invoices = () => {
                               )}
                               Download PDF
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setInvoiceToSend(invoice);
+                                setSendDialogOpen(true);
+                              }}
+                            >
+                              <Mail className="mr-2 h-4 w-4" />
+                              Email to Client
+                            </DropdownMenuItem>
                             {invoice.status === "draft" && (
                               <DropdownMenuItem
                                 onClick={() => sendInvoice.mutate(invoice.id)}
@@ -455,6 +468,13 @@ const Invoices = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Send Invoice Dialog */}
+      <SendInvoiceDialog
+        invoice={invoiceToSend}
+        open={sendDialogOpen}
+        onOpenChange={setSendDialogOpen}
+      />
     </DashboardLayout>
   );
 };

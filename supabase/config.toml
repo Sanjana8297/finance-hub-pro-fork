@@ -5,3 +5,6 @@ verify_jwt = true
 
 [functions.send-receipt-notification]
 verify_jwt = true
+
+[functions.send-invoice-email]
+verify_jwt = true
