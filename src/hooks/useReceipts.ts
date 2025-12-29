@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { toast } from "@/hooks/use-toast";
 
-export type Receipt = Tables<"receipts">;
+export type Receipt = Tables<"receipts"> & { verification_notes?: string | null };
 export type ReceiptInsert = TablesInsert<"receipts">;
 
 export function useReceipts() {
@@ -77,6 +77,55 @@ export function useCreateReceipt() {
     onError: (error: Error) => {
       toast({
         title: "Failed to create receipt",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useVerifyReceipt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      status,
+      notes,
+    }: {
+      id: string;
+      status: "verified" | "rejected";
+      notes?: string;
+    }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data, error } = await supabase
+        .from("receipts")
+        .update({
+          status,
+          verification_notes: notes || null,
+          verified_by: user.id,
+          verified_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["receipt-stats"] });
+      toast({
+        title: variables.status === "verified" ? "Receipt approved" : "Receipt rejected",
+        description: `The receipt has been ${variables.status}`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Verification failed",
         description: error.message,
         variant: "destructive",
       });

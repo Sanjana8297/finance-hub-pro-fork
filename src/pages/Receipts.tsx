@@ -18,6 +18,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -39,6 +40,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Plus,
   Upload,
   Search,
@@ -52,10 +58,14 @@ import {
   Clock,
   XCircle,
   FileText,
+  ShieldCheck,
+  MessageSquare,
 } from "lucide-react";
 import { FileUploadZone } from "@/components/receipts/FileUploadZone";
 import { ReceiptForm } from "@/components/receipts/ReceiptForm";
-import { useReceipts, useReceiptStats, useDeleteReceipt } from "@/hooks/useReceipts";
+import { VerifyReceiptDialog } from "@/components/receipts/VerifyReceiptDialog";
+import { useReceipts, useReceiptStats, useDeleteReceipt, Receipt } from "@/hooks/useReceipts";
+import { useAuth } from "@/contexts/AuthContext";
 
 const statusConfig: Record<string, { variant: "success" | "warning" | "destructive"; icon: typeof CheckCircle; label: string }> = {
   verified: {
@@ -79,11 +89,18 @@ const Receipts = () => {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [verifyReceipt, setVerifyReceipt] = useState<Receipt | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const { roles } = useAuth();
   const { data: receipts, isLoading } = useReceipts();
   const { data: stats } = useReceiptStats();
   const deleteReceipt = useDeleteReceipt();
+
+  // Check if user has finance access for verification
+  const canVerify = roles.some((r) =>
+    ["super_admin", "admin", "finance_manager", "accountant"].includes(r)
+  );
 
   const filteredReceipts = receipts?.filter(
     (r) =>
@@ -277,10 +294,22 @@ const Receipts = () => {
                         {format(new Date(receipt.receipt_date), "MMM d, yyyy")}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={status.variant} className="gap-1">
-                          <StatusIcon className="h-3 w-3" />
-                          {status.label}
-                        </Badge>
+                        <div className="flex items-center gap-1">
+                          <Badge variant={status.variant} className="gap-1">
+                            <StatusIcon className="h-3 w-3" />
+                            {status.label}
+                          </Badge>
+                          {receipt.verification_notes && (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <MessageSquare className="h-3 w-3 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <p className="text-xs">{receipt.verification_notes}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {receipt.file_url ? (
@@ -304,6 +333,18 @@ const Receipts = () => {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {canVerify && receipt.status === "pending" && (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => setVerifyReceipt(receipt)}
+                                  className="text-primary"
+                                >
+                                  <ShieldCheck className="mr-2 h-4 w-4" />
+                                  Verify Receipt
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
                             <DropdownMenuItem>
                               <Eye className="mr-2 h-4 w-4" />
                               View
@@ -324,6 +365,7 @@ const Receipts = () => {
                                 </a>
                               </DropdownMenuItem>
                             )}
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive"
                               onClick={() => setDeleteId(receipt.id)}
@@ -363,6 +405,13 @@ const Receipts = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Verify Receipt Dialog */}
+      <VerifyReceiptDialog
+        receipt={verifyReceipt}
+        open={!!verifyReceipt}
+        onOpenChange={(open) => !open && setVerifyReceipt(null)}
+      />
     </DashboardLayout>
   );
 };

@@ -522,6 +522,7 @@ export type Database = {
           tags: string[] | null
           updated_at: string
           vendor: string
+          verification_notes: string | null
           verified_at: string | null
           verified_by: string | null
         }
@@ -543,6 +544,7 @@ export type Database = {
           tags?: string[] | null
           updated_at?: string
           vendor: string
+          verification_notes?: string | null
           verified_at?: string | null
           verified_by?: string | null
         }
@@ -564,6 +566,7 @@ export type Database = {
           tags?: string[] | null
           updated_at?: string
           vendor?: string
+          verification_notes?: string | null
           verified_at?: string | null
           verified_by?: string | null
         }
