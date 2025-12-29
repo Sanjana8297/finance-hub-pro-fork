@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -5,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Building2,
   Upload,
@@ -14,9 +16,65 @@ import {
   CreditCard,
   Globe,
   Mail,
+  Loader2,
 } from "lucide-react";
+import { useCompany, useUpdateCompany, useUploadCompanyLogo } from "@/hooks/useCompany";
 
 const Settings = () => {
+  const { data: company, isLoading } = useCompany();
+  const updateCompany = useUpdateCompany();
+  const uploadLogo = useUploadCompanyLogo();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [formData, setFormData] = useState({
+    name: "",
+    tax_id: "",
+    email: "",
+    phone: "",
+    address: "",
+    website: "",
+    currency: "USD",
+    timezone: "UTC",
+  });
+
+  useEffect(() => {
+    if (company) {
+      setFormData({
+        name: company.name || "",
+        tax_id: company.tax_id || "",
+        email: company.email || "",
+        phone: company.phone || "",
+        address: company.address || "",
+        website: company.website || "",
+        currency: company.currency || "USD",
+        timezone: company.timezone || "UTC",
+      });
+    }
+  }, [company]);
+
+  const handleSaveCompanyProfile = () => {
+    if (!company?.id) return;
+    updateCompany.mutate({
+      id: company.id,
+      ...formData,
+    });
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !company?.id) return;
+    uploadLogo.mutate({ companyId: company.id, file });
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
   return (
     <DashboardLayout>
       {/* Page Header */}
@@ -38,48 +96,132 @@ const Settings = () => {
                 Company Profile
               </CardTitle>
               <CardDescription>
-                Update your company information
+                Update your company information for invoices and receipts
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-primary/10 text-2xl font-bold text-primary">
-                  FH
+              {isLoading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-20 w-20 rounded-xl" />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full" />
+                    ))}
+                  </div>
                 </div>
-                <Button variant="outline">
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload Logo
-                </Button>
-              </div>
-              <Separator />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="companyName">Company Name</Label>
-                  <Input id="companyName" defaultValue="FinanceHub Inc." />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="taxId">Tax ID / VAT Number</Label>
-                  <Input id="taxId" defaultValue="US-123456789" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" defaultValue="contact@financehub.com" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input id="phone" defaultValue="+1 (555) 123-4567" />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Input id="address" defaultValue="123 Business Ave, New York, NY 10001" />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Changes
-                </Button>
-              </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-4">
+                    {company?.logo_url ? (
+                      <img
+                        src={company.logo_url}
+                        alt="Company logo"
+                        className="h-20 w-20 rounded-xl object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-primary/10 text-2xl font-bold text-primary">
+                        {getInitials(formData.name || "FH")}
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadLogo.isPending}
+                    >
+                      {uploadLogo.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="mr-2 h-4 w-4" />
+                      )}
+                      Upload Logo
+                    </Button>
+                  </div>
+                  <Separator />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="companyName">Company Name</Label>
+                      <Input
+                        id="companyName"
+                        value={formData.name}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, name: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="taxId">Tax ID / VAT Number</Label>
+                      <Input
+                        id="taxId"
+                        value={formData.tax_id}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, tax_id: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={formData.email}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, email: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone</Label>
+                      <Input
+                        id="phone"
+                        value={formData.phone}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, phone: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="address">Address</Label>
+                      <Input
+                        id="address"
+                        value={formData.address}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, address: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="website">Website</Label>
+                      <Input
+                        id="website"
+                        value={formData.website}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, website: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={handleSaveCompanyProfile}
+                      disabled={updateCompany.isPending}
+                    >
+                      {updateCompany.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="mr-2 h-4 w-4" />
+                      )}
+                      Save Changes
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -137,11 +279,23 @@ const Settings = () => {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="currency">Currency</Label>
-                  <Input id="currency" defaultValue="USD ($)" />
+                  <Input
+                    id="currency"
+                    value={formData.currency}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, currency: e.target.value }))
+                    }
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
-                  <Input id="timezone" defaultValue="America/New_York (EST)" />
+                  <Input
+                    id="timezone"
+                    value={formData.timezone}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, timezone: e.target.value }))
+                    }
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="dateFormat">Date Format</Label>
@@ -153,8 +307,12 @@ const Settings = () => {
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button>
-                  <Save className="mr-2 h-4 w-4" />
+                <Button onClick={handleSaveCompanyProfile} disabled={updateCompany.isPending}>
+                  {updateCompany.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
                   Save Changes
                 </Button>
               </div>
@@ -249,11 +407,11 @@ const Settings = () => {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="senderName">Sender Name</Label>
-                <Input id="senderName" defaultValue="FinanceHub" />
+                <Input id="senderName" defaultValue={formData.name || "FinanceHub"} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="replyTo">Reply-To Email</Label>
-                <Input id="replyTo" defaultValue="support@financehub.com" />
+                <Input id="replyTo" defaultValue={formData.email || "support@financehub.com"} />
               </div>
               <Button variant="outline" className="w-full">
                 Configure SMTP
