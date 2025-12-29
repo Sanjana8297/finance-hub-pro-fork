@@ -1,24 +1,33 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
-  Legend,
   Tooltip,
 } from "recharts";
-
-const data = [
-  { name: "Marketing", value: 25000, color: "hsl(241, 44%, 32%)" },
-  { name: "Operations", value: 18000, color: "hsl(241, 44%, 45%)" },
-  { name: "Payroll", value: 42000, color: "hsl(241, 44%, 55%)" },
-  { name: "Technology", value: 15000, color: "hsl(199, 89%, 48%)" },
-  { name: "Travel", value: 8000, color: "hsl(38, 92%, 50%)" },
-  { name: "Other", value: 5000, color: "hsl(220, 15%, 70%)" },
-];
+import { useExpenseBreakdown } from "@/hooks/useDashboardStats";
 
 export function ExpenseBreakdown() {
-  const total = data.reduce((sum, item) => sum + item.value, 0);
+  const { data, isLoading } = useExpenseBreakdown();
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-4 w-48 mt-1" />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[280px] w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const categories = data || [];
+  const total = categories.reduce((sum, item) => sum + item.value, 0);
 
   return (
     <Card>
@@ -28,47 +37,55 @@ export function ExpenseBreakdown() {
       </CardHeader>
       <CardContent>
         <div className="h-[280px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={90}
-                paddingAngle={2}
-                dataKey="value"
-              >
-                {data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} strokeWidth={0} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(0, 0%, 100%)',
-                  border: '1px solid hsl(220, 15%, 90%)',
-                  borderRadius: '12px',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                }}
-                formatter={(value: number) => [`$${value.toLocaleString()}`, '']}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          {data.map((item) => (
-            <div key={item.name} className="flex items-center gap-2">
-              <div
-                className="h-3 w-3 rounded-full"
-                style={{ backgroundColor: item.color }}
-              />
-              <span className="text-sm text-muted-foreground">{item.name}</span>
-              <span className="ml-auto text-sm font-medium">
-                {((item.value / total) * 100).toFixed(0)}%
-              </span>
+          {categories.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              No expenses this month
             </div>
-          ))}
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={categories}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={90}
+                  paddingAngle={2}
+                  dataKey="value"
+                >
+                  {categories.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} strokeWidth={0} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(0, 0%, 100%)',
+                    border: '1px solid hsl(220, 15%, 90%)',
+                    borderRadius: '12px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                  }}
+                  formatter={(value: number) => [`$${value.toLocaleString()}`, '']}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
+        {categories.length > 0 && (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {categories.map((item) => (
+              <div key={item.name} className="flex items-center gap-2">
+                <div
+                  className="h-3 w-3 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="text-sm text-muted-foreground truncate">{item.name}</span>
+                <span className="ml-auto text-sm font-medium">
+                  {total > 0 ? ((item.value / total) * 100).toFixed(0) : 0}%
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

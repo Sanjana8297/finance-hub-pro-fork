@@ -14,10 +14,32 @@ import {
   Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { useAuth } from "@/contexts/AuthContext";
+import { Link } from "react-router-dom";
 
 const Dashboard = () => {
+  const { profile } = useAuth();
+  const { data: stats, isLoading } = useDashboardStats();
+
+  const formatCurrency = (value: number) => {
+    if (value >= 1000000) {
+      return `$${(value / 1000000).toFixed(1)}M`;
+    }
+    if (value >= 1000) {
+      return `$${(value / 1000).toFixed(1)}K`;
+    }
+    return `$${value.toLocaleString()}`;
+  };
+
+  const formatChange = (value: number, isExpense = false) => {
+    const sign = value >= 0 ? "+" : "";
+    const label = isExpense ? "from last month" : "from last month";
+    return `${sign}${value.toFixed(1)}% ${label}`;
+  };
+
   return (
     <DashboardLayout>
       {/* Page Header */}
@@ -26,17 +48,19 @@ const Dashboard = () => {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
             <p className="text-muted-foreground">
-              Welcome back, John. Here's your financial overview.
+              Welcome back, {profile?.full_name || "User"}. Here's your financial overview.
             </p>
           </div>
           <div className="flex gap-3">
             <Button variant="outline">
               <Clock className="mr-2 h-4 w-4" />
-              Last 30 Days
+              This Month
             </Button>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              New Transaction
+            <Button asChild>
+              <Link to="/receipts">
+                <Plus className="mr-2 h-4 w-4" />
+                New Receipt
+              </Link>
             </Button>
           </div>
         </div>
@@ -44,67 +68,79 @@ const Dashboard = () => {
 
       {/* Stats Grid */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="animate-slide-up opacity-0 stagger-1">
-          <StatCard
-            title="Total Receipts"
-            value="$284,520"
-            change="+12.5% from last month"
-            changeType="positive"
-            icon={Receipt}
-            iconColor="bg-primary/10 text-primary"
-          />
-        </div>
-        <div className="animate-slide-up opacity-0 stagger-2">
-          <StatCard
-            title="Total Expenses"
-            value="$113,000"
-            change="+8.2% from last month"
-            changeType="negative"
-            icon={CreditCard}
-            iconColor="bg-destructive/10 text-destructive"
-          />
-        </div>
-        <div className="animate-slide-up opacity-0 stagger-3">
-          <StatCard
-            title="Pending Invoices"
-            value="$45,250"
-            change="12 invoices pending"
-            changeType="neutral"
-            icon={FileText}
-            iconColor="bg-warning/10 text-warning"
-          />
-        </div>
-        <div className="animate-slide-up opacity-0 stagger-4">
-          <StatCard
-            title="Monthly Profit"
-            value="$171,520"
-            change="+18.3% from last month"
-            changeType="positive"
-            icon={TrendingUp}
-            iconColor="bg-success/10 text-success"
-          />
-        </div>
+        {isLoading ? (
+          <>
+            {[1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-32 w-full" />
+            ))}
+          </>
+        ) : (
+          <>
+            <div className="animate-slide-up opacity-0 stagger-1">
+              <StatCard
+                title="Total Receipts"
+                value={formatCurrency(stats?.totalReceipts || 0)}
+                change={formatChange(stats?.receiptsChange || 0)}
+                changeType={stats?.receiptsChange && stats.receiptsChange >= 0 ? "positive" : "negative"}
+                icon={Receipt}
+                iconColor="bg-primary/10 text-primary"
+              />
+            </div>
+            <div className="animate-slide-up opacity-0 stagger-2">
+              <StatCard
+                title="Total Expenses"
+                value={formatCurrency(stats?.totalExpenses || 0)}
+                change={formatChange(stats?.expensesChange || 0, true)}
+                changeType={stats?.expensesChange && stats.expensesChange > 0 ? "negative" : "positive"}
+                icon={CreditCard}
+                iconColor="bg-destructive/10 text-destructive"
+              />
+            </div>
+            <div className="animate-slide-up opacity-0 stagger-3">
+              <StatCard
+                title="Pending Invoices"
+                value={formatCurrency(stats?.pendingInvoices || 0)}
+                change={`${stats?.pendingInvoicesCount || 0} invoices pending`}
+                changeType="neutral"
+                icon={FileText}
+                iconColor="bg-warning/10 text-warning"
+              />
+            </div>
+            <div className="animate-slide-up opacity-0 stagger-4">
+              <StatCard
+                title="Monthly Profit"
+                value={formatCurrency(stats?.monthlyProfit || 0)}
+                change={formatChange(stats?.profitChange || 0)}
+                changeType={stats?.monthlyProfit && stats.monthlyProfit >= 0 ? "positive" : "negative"}
+                icon={TrendingUp}
+                iconColor="bg-success/10 text-success"
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Alerts */}
-      <div className="mb-8 animate-slide-up opacity-0 stagger-5">
-        <Card className="border-warning/30 bg-warning/5">
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-warning/10">
-              <AlertCircle className="h-5 w-5 text-warning" />
-            </div>
-            <div className="flex-1">
-              <p className="font-medium">3 invoices are overdue</p>
-              <p className="text-sm text-muted-foreground">
-                Total outstanding: $36,750. Send payment reminders to avoid delays.
-              </p>
-            </div>
-            <Button variant="warning" size="sm">
-              View Overdue
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      {!isLoading && stats?.overdueInvoices && stats.overdueInvoices.count > 0 && (
+        <div className="mb-8 animate-slide-up opacity-0 stagger-5">
+          <Card className="border-warning/30 bg-warning/5">
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-warning/10">
+                <AlertCircle className="h-5 w-5 text-warning" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium">{stats.overdueInvoices.count} invoice{stats.overdueInvoices.count > 1 ? 's are' : ' is'} overdue</p>
+                <p className="text-sm text-muted-foreground">
+                  Total outstanding: {formatCurrency(stats.overdueInvoices.total)}. Send payment reminders to avoid delays.
+                </p>
+              </div>
+              <Button variant="warning" size="sm" asChild>
+                <Link to="/invoices">View Overdue</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Charts Row */}
       <div className="mb-8 grid gap-6 lg:grid-cols-3">
