@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { NotificationListener } from "@/components/notifications/NotificationListener";
 import Dashboard from "./pages/Dashboard";
 import Receipts from "./pages/Receipts";
 import Invoices from "./pages/Invoices";
@@ -28,6 +29,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <NotificationListener />
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route
