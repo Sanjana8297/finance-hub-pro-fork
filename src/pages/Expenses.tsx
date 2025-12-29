@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ExpenseDialog } from "@/components/expenses/ExpenseDialog";
+import { RejectExpenseDialog } from "@/components/expenses/RejectExpenseDialog";
 import {
   useExpenses,
   useExpenseStats,
@@ -80,6 +81,8 @@ const Expenses = () => {
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [expenseToReject, setExpenseToReject] = useState<Expense | null>(null);
 
   const { hasFinanceAccess, isAdmin } = useAuth();
   const { data: expenses, isLoading } = useExpenses();
@@ -121,6 +124,19 @@ const Expenses = () => {
       await deleteExpense.mutateAsync(expenseToDelete.id);
       setDeleteDialogOpen(false);
       setExpenseToDelete(null);
+    }
+  };
+
+  const handleRejectClick = (expense: Expense) => {
+    setExpenseToReject(expense);
+    setRejectDialogOpen(true);
+  };
+
+  const handleRejectConfirm = async (reason: string) => {
+    if (expenseToReject) {
+      await rejectExpense.mutateAsync({ id: expenseToReject.id, notes: reason });
+      setRejectDialogOpen(false);
+      setExpenseToReject(null);
     }
   };
 
@@ -347,7 +363,7 @@ const Expenses = () => {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-destructive"
-                                  onClick={() => rejectExpense.mutate({ id: expense.id })}
+                                  onClick={() => handleRejectClick(expense)}
                                 >
                                   <XCircle className="mr-2 h-4 w-4" />
                                   Reject
@@ -402,6 +418,16 @@ const Expenses = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Reject Expense Dialog */}
+      <RejectExpenseDialog
+        open={rejectDialogOpen}
+        onOpenChange={setRejectDialogOpen}
+        expenseDescription={expenseToReject?.description || ""}
+        expenseAmount={Number(expenseToReject?.amount) || 0}
+        onConfirm={handleRejectConfirm}
+        isLoading={rejectExpense.isPending}
+      />
     </DashboardLayout>
   );
 };
