@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { toast } from "@/hooks/use-toast";
+import { checkExpenseAgainstPolicies } from "@/hooks/useExpensePolicies";
 
 export type Expense = Tables<"expenses"> & {
   profiles?: { full_name: string | null; avatar_url: string | null } | null;
@@ -108,6 +109,19 @@ export function useCreateExpense() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
+      // Check expense against policies before creating
+      const violations = await checkExpenseAgainstPolicies({
+        amount: Number(expense.amount),
+        category_id: expense.category_id,
+        expense_date: expense.expense_date || new Date().toISOString().split("T")[0],
+      });
+
+      // Check if any policy has auto_reject action
+      const autoRejectViolation = violations.find(v => v.policy.action === "auto_reject");
+      if (autoRejectViolation) {
+        throw new Error(`Expense rejected by policy: ${autoRejectViolation.violationDetails}`);
+      }
+
       const { data, error } = await supabase
         .from("expenses")
         .insert({
@@ -119,15 +133,35 @@ export function useCreateExpense() {
         .single();
 
       if (error) throw error;
-      return data;
+
+      // Create policy violations for any flagged policies
+      for (const violation of violations) {
+        await supabase.from("expense_policy_violations").insert({
+          expense_id: data.id,
+          policy_id: violation.policy.id,
+          violation_details: violation.violationDetails,
+        });
+      }
+
+      return { expense: data, violations };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
       queryClient.invalidateQueries({ queryKey: ["expense-stats"] });
-      toast({
-        title: "Expense submitted",
-        description: "Your expense has been submitted for approval",
-      });
+      queryClient.invalidateQueries({ queryKey: ["policy-violations"] });
+      
+      if (result.violations.length > 0) {
+        toast({
+          title: "Expense submitted with policy flags",
+          description: `Your expense has been submitted but flagged for ${result.violations.length} policy ${result.violations.length === 1 ? "violation" : "violations"}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Expense submitted",
+          description: "Your expense has been submitted for approval",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({

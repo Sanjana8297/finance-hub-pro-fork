@@ -239,6 +239,114 @@ export type Database = {
           },
         ]
       }
+      expense_policies: {
+        Row: {
+          action: string
+          category_id: string | null
+          company_id: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          policy_type: string
+          threshold_amount: number | null
+          updated_at: string
+        }
+        Insert: {
+          action?: string
+          category_id?: string | null
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          policy_type: string
+          threshold_amount?: number | null
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          category_id?: string | null
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          policy_type?: string
+          threshold_amount?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_policies_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_policies_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_policy_violations: {
+        Row: {
+          created_at: string
+          expense_id: string
+          id: string
+          policy_id: string
+          resolved: boolean
+          resolved_at: string | null
+          resolved_by: string | null
+          violation_details: string | null
+        }
+        Insert: {
+          created_at?: string
+          expense_id: string
+          id?: string
+          policy_id: string
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          violation_details?: string | null
+        }
+        Update: {
+          created_at?: string
+          expense_id?: string
+          id?: string
+          policy_id?: string
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          violation_details?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_policy_violations_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_policy_violations_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "expense_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expenses: {
         Row: {
           amount: number

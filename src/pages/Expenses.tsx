@@ -44,11 +44,14 @@ import {
   Receipt,
   DollarSign,
   UserCheck,
+  Shield,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ExpenseDialog } from "@/components/expenses/ExpenseDialog";
 import { RejectExpenseDialog } from "@/components/expenses/RejectExpenseDialog";
 import { DelegationManager } from "@/components/expenses/DelegationManager";
+import { PolicyManager } from "@/components/expenses/PolicyManager";
+import { PolicyViolationBadge } from "@/components/expenses/PolicyViolationBadge";
 import {
   useExpenses,
   useExpenseStats,
@@ -174,6 +177,12 @@ const Expenses = () => {
             <TabsTrigger value="delegations" className="gap-2">
               <UserCheck className="h-4 w-4" />
               Delegations
+            </TabsTrigger>
+          )}
+          {canApprove && (
+            <TabsTrigger value="policies" className="gap-2">
+              <Shield className="h-4 w-4" />
+              Policies
             </TabsTrigger>
           )}
         </TabsList>
@@ -356,10 +365,13 @@ const Expenses = () => {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={status.variant} className="gap-1">
-                          <StatusIcon className="h-3 w-3" />
-                          {status.label}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={status.variant} className="gap-1">
+                            <StatusIcon className="h-3 w-3" />
+                            {status.label}
+                          </Badge>
+                          <PolicyViolationBadge expenseId={expense.id} />
+                        </div>
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -415,6 +427,12 @@ const Expenses = () => {
         {canApprove && (
           <TabsContent value="delegations">
             <DelegationManager />
+          </TabsContent>
+        )}
+
+        {canApprove && (
+          <TabsContent value="policies">
+            <PolicyManager />
           </TabsContent>
         )}
       </Tabs>
