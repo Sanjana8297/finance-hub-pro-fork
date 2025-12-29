@@ -18,13 +18,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, Receipt, Upload, X, FileImage, File, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Expense,
   useCreateExpense,
   useUpdateExpense,
   useExpenseCategories,
 } from "@/hooks/useExpenses";
+import { useReceipts } from "@/hooks/useReceipts";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/hooks/use-toast";
+import { useReceiptOCR } from "@/hooks/useReceiptOCR";
 
 interface ExpenseDialogProps {
   expense?: Expense | null;
@@ -49,9 +56,12 @@ export function ExpenseDialog({
   onOpenChange,
 }: ExpenseDialogProps) {
   const isEditing = !!expense;
+  const { user } = useAuth();
   const createExpense = useCreateExpense();
   const updateExpense = useUpdateExpense();
   const { data: categories } = useExpenseCategories();
+  const { data: receipts } = useReceipts();
+  const { extractReceiptData, isExtracting } = useReceiptOCR();
 
   const [formData, setFormData] = useState({
     description: "",
@@ -60,7 +70,24 @@ export function ExpenseDialog({
     category_id: "",
     department: "",
     notes: "",
+    receipt_id: "",
   });
+
+  // File upload state
+  const [receiptTab, setReceiptTab] = useState<"existing" | "upload">("upload");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<{
+    url: string;
+    name: string;
+    type: string;
+    preview?: string;
+  } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Filter receipts that aren't already linked to other expenses
+  const availableReceipts = receipts?.filter(
+    (r) => !r.linked_expense_id || r.linked_expense_id === expense?.id
+  );
 
   useEffect(() => {
     if (open) {
@@ -72,7 +99,9 @@ export function ExpenseDialog({
           category_id: expense.category_id || "",
           department: expense.department || "",
           notes: expense.notes || "",
+          receipt_id: expense.receipt_id || "",
         });
+        setReceiptTab(expense.receipt_id ? "existing" : "upload");
       } else {
         setFormData({
           description: "",
@@ -81,40 +110,198 @@ export function ExpenseDialog({
           category_id: "",
           department: "",
           notes: "",
+          receipt_id: "",
         });
+        setReceiptTab("upload");
       }
+      setUploadedFile(null);
     }
   }, [open, expense]);
+
+  const validateFile = (file: File): boolean => {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      toast({
+        title: "File too large",
+        description: "Maximum file size is 10MB",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/pdf",
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image (JPEG, PNG, WebP) or PDF",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const uploadFile = async (file: File) => {
+    if (!user || !validateFile(file)) return;
+
+    setIsUploading(true);
+
+    try {
+      const fileExt = file.name.split(".").pop();
+      const filePath = `${user.id}/${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("receipts")
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from("receipts")
+        .getPublicUrl(filePath);
+
+      // Create preview for images
+      let preview: string | undefined;
+      if (file.type.startsWith("image/")) {
+        preview = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      setUploadedFile({
+        url: urlData.publicUrl,
+        name: file.name,
+        type: file.type,
+        preview,
+      });
+
+      // Auto-extract data with OCR for images
+      if (file.type.startsWith("image/")) {
+        const extracted = await extractReceiptData(urlData.publicUrl);
+        if (extracted) {
+          setFormData((prev) => ({
+            ...prev,
+            description: extracted.vendor
+              ? `${extracted.vendor}${extracted.category ? ` - ${extracted.category}` : ""}`
+              : prev.description,
+            amount: extracted.amount ? String(extracted.amount) : prev.amount,
+            expense_date: extracted.date || prev.expense_date,
+          }));
+        }
+      }
+
+      toast({
+        title: "Receipt uploaded",
+        description: "Your receipt has been uploaded successfully",
+      });
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast({
+        title: "Upload failed",
+        description: error.message || "Failed to upload file",
+        variant: "destructive",
+      });
+      setUploadedFile(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      uploadFile(files[0]);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      uploadFile(files[0]);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!formData.description || !formData.amount) return;
 
-    const expenseData = {
-      description: formData.description,
-      amount: Number(formData.amount),
-      expense_date: formData.expense_date,
-      category_id: formData.category_id || null,
-      department: formData.department || null,
-      notes: formData.notes || null,
-    };
+    try {
+      let receiptId = formData.receipt_id || null;
 
-    if (isEditing && expense) {
-      await updateExpense.mutateAsync({
-        id: expense.id,
-        expense: expenseData,
+      // If a new file was uploaded, create a receipt record first
+      if (uploadedFile && !receiptId) {
+        const receiptNumber = `RCP-${Date.now().toString().slice(-8)}`;
+        
+        const { data: newReceipt, error: receiptError } = await supabase
+          .from("receipts")
+          .insert({
+            receipt_number: receiptNumber,
+            vendor: formData.description.split(" - ")[0] || "Unknown",
+            amount: Number(formData.amount),
+            receipt_date: formData.expense_date,
+            file_url: uploadedFile.url,
+            status: "pending",
+            created_by: user?.id,
+          })
+          .select()
+          .single();
+
+        if (receiptError) throw receiptError;
+        receiptId = newReceipt.id;
+      }
+
+      const expenseData = {
+        description: formData.description,
+        amount: Number(formData.amount),
+        expense_date: formData.expense_date,
+        category_id: formData.category_id || null,
+        department: formData.department || null,
+        notes: formData.notes || null,
+        receipt_id: receiptId,
+      };
+
+      if (isEditing && expense) {
+        await updateExpense.mutateAsync({
+          id: expense.id,
+          expense: expenseData,
+        });
+      } else {
+        await createExpense.mutateAsync(expenseData);
+      }
+
+      // Update the receipt's linked_expense_id
+      if (receiptId) {
+        // We need to get the expense ID after creation
+        // For now, this is handled by the mutation
+      }
+
+      onOpenChange(false);
+    } catch (error: any) {
+      console.error("Submit error:", error);
+      toast({
+        title: "Failed to submit expense",
+        description: error.message,
+        variant: "destructive",
       });
-    } else {
-      await createExpense.mutateAsync(expenseData);
     }
-
-    onOpenChange(false);
   };
 
   const isPending = createExpense.isPending || updateExpense.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEditing ? "Edit Expense" : "Submit Expense"}</DialogTitle>
           <DialogDescription>
@@ -125,6 +312,146 @@ export function ExpenseDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Receipt Attachment */}
+          <div className="space-y-2">
+            <Label>Receipt</Label>
+            <Tabs value={receiptTab} onValueChange={(v) => setReceiptTab(v as "existing" | "upload")}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="upload">Upload New</TabsTrigger>
+                <TabsTrigger value="existing">Select Existing</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="upload" className="mt-3">
+                {uploadedFile ? (
+                  <div className="relative rounded-lg border-2 border-dashed border-primary/30 bg-primary/5 p-4">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2 top-2 h-6 w-6"
+                      onClick={() => setUploadedFile(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                    <div className="flex items-center gap-4">
+                      {uploadedFile.preview ? (
+                        <img
+                          src={uploadedFile.preview}
+                          alt="Receipt preview"
+                          className="h-16 w-16 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-muted">
+                          <File className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-sm font-medium">{uploadedFile.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {uploadedFile.type?.includes("pdf") ? "PDF Document" : "Image"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <label
+                    className={cn(
+                      "flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-all",
+                      isDragging
+                        ? "border-primary bg-primary/10"
+                        : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50",
+                      (isUploading || isExtracting) && "pointer-events-none opacity-50"
+                    )}
+                    onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                    onDrop={handleDrop}
+                  >
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*,application/pdf"
+                      onChange={handleFileSelect}
+                      disabled={isUploading || isExtracting}
+                    />
+                    {isUploading || isExtracting ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <p className="text-sm text-muted-foreground">
+                          {isExtracting ? (
+                            <span className="flex items-center gap-1">
+                              <Sparkles className="h-4 w-4" />
+                              Extracting data...
+                            </span>
+                          ) : (
+                            "Uploading..."
+                          )}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="rounded-full bg-primary/10 p-2">
+                          <Upload className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-sm">
+                            Drop receipt or <span className="text-primary font-medium">browse</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            JPEG, PNG, PDF (max 10MB)
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </label>
+                )}
+              </TabsContent>
+              
+              <TabsContent value="existing" className="mt-3">
+                <Select
+                  value={formData.receipt_id}
+                  onValueChange={(value) => {
+                    setFormData((prev) => ({ ...prev, receipt_id: value }));
+                    setUploadedFile(null);
+                    
+                    // Auto-fill from selected receipt
+                    const selectedReceipt = availableReceipts?.find((r) => r.id === value);
+                    if (selectedReceipt && !formData.description) {
+                      setFormData((prev) => ({
+                        ...prev,
+                        receipt_id: value,
+                        description: prev.description || selectedReceipt.vendor,
+                        amount: prev.amount || String(selectedReceipt.amount),
+                        expense_date: prev.expense_date || selectedReceipt.receipt_date,
+                      }));
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a receipt" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableReceipts?.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-muted-foreground">
+                        No receipts available
+                      </div>
+                    ) : (
+                      availableReceipts?.map((receipt) => (
+                        <SelectItem key={receipt.id} value={receipt.id}>
+                          <div className="flex items-center gap-2">
+                            <Receipt className="h-4 w-4 text-muted-foreground" />
+                            <span>{receipt.vendor}</span>
+                            <span className="text-muted-foreground">
+                              ${Number(receipt.amount).toFixed(2)}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </TabsContent>
+            </Tabs>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="description">Description *</Label>
             <Input
@@ -226,7 +553,7 @@ export function ExpenseDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={isPending}>
+          <Button onClick={handleSubmit} disabled={isPending || isUploading || isExtracting}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {isEditing ? "Update Expense" : "Submit Expense"}
           </Button>
