@@ -58,6 +58,7 @@ import {
   useSendInvoice,
   Invoice,
 } from "@/hooks/useInvoices";
+import { useCompany } from "@/hooks/useCompany";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -97,6 +98,7 @@ const Invoices = () => {
 
   const { data: invoices, isLoading } = useInvoices();
   const { data: stats, isLoading: statsLoading } = useInvoiceStats();
+  const { data: company } = useCompany();
   const deleteInvoice = useDeleteInvoice();
   const markPaid = useMarkInvoicePaid();
   const sendInvoice = useSendInvoice();
@@ -113,7 +115,12 @@ const Invoices = () => {
       
       if (error) throw error;
       
-      const blob = await generateInvoicePDF(invoice, items || []);
+      const blob = await generateInvoicePDF(
+        invoice, 
+        items || [],
+        company?.name || undefined,
+        company?.address || undefined
+      );
       downloadPDF(blob, `${invoice.invoice_number}.pdf`);
       
       toast({
