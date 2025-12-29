@@ -45,6 +45,7 @@ import {
   DollarSign,
   UserCheck,
   Shield,
+  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ExpenseDialog } from "@/components/expenses/ExpenseDialog";
@@ -52,6 +53,7 @@ import { RejectExpenseDialog } from "@/components/expenses/RejectExpenseDialog";
 import { DelegationManager } from "@/components/expenses/DelegationManager";
 import { PolicyManager } from "@/components/expenses/PolicyManager";
 import { PolicyViolationBadge } from "@/components/expenses/PolicyViolationBadge";
+import { ViolationsDashboard } from "@/components/expenses/ViolationsDashboard";
 import {
   useExpenses,
   useExpenseStats,
@@ -177,6 +179,12 @@ const Expenses = () => {
             <TabsTrigger value="delegations" className="gap-2">
               <UserCheck className="h-4 w-4" />
               Delegations
+            </TabsTrigger>
+          )}
+          {canApprove && (
+            <TabsTrigger value="violations" className="gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              Violations
             </TabsTrigger>
           )}
           {canApprove && (
@@ -427,6 +435,12 @@ const Expenses = () => {
         {canApprove && (
           <TabsContent value="delegations">
             <DelegationManager />
+          </TabsContent>
+        )}
+
+        {canApprove && (
+          <TabsContent value="violations">
+            <ViolationsDashboard />
           </TabsContent>
         )}
 
