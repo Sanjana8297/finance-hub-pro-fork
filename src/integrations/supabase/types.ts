@@ -192,6 +192,53 @@ export type Database = {
           },
         ]
       }
+      expense_delegations: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          delegate_id: string
+          delegator_id: string
+          end_date: string
+          id: string
+          reason: string | null
+          start_date: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          delegate_id: string
+          delegator_id: string
+          end_date: string
+          id?: string
+          reason?: string | null
+          start_date: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          delegate_id?: string
+          delegator_id?: string
+          end_date?: string
+          id?: string
+          reason?: string | null
+          start_date?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_delegations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expenses: {
         Row: {
           amount: number
@@ -666,6 +713,10 @@ export type Database = {
     }
     Functions: {
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
+      has_delegated_approval_authority: {
+        Args: { _user_id: string }
+        Returns: boolean
+      }
       has_finance_access: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {

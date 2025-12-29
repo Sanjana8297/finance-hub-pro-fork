@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -42,10 +43,12 @@ import {
   XCircle,
   Receipt,
   DollarSign,
+  UserCheck,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ExpenseDialog } from "@/components/expenses/ExpenseDialog";
 import { RejectExpenseDialog } from "@/components/expenses/RejectExpenseDialog";
+import { DelegationManager } from "@/components/expenses/DelegationManager";
 import {
   useExpenses,
   useExpenseStats,
@@ -54,6 +57,7 @@ import {
   useDeleteExpense,
   Expense,
 } from "@/hooks/useExpenses";
+import { useHasDelegatedAuthority } from "@/hooks/useExpenseDelegations";
 import { useAuth } from "@/contexts/AuthContext";
 
 const statusConfig = {
@@ -87,11 +91,13 @@ const Expenses = () => {
   const { hasFinanceAccess, isAdmin } = useAuth();
   const { data: expenses, isLoading } = useExpenses();
   const { data: stats, isLoading: statsLoading } = useExpenseStats();
+  const { data: hasDelegatedAuthority } = useHasDelegatedAuthority();
   const approveExpense = useApproveExpense();
   const rejectExpense = useRejectExpense();
   const deleteExpense = useDeleteExpense();
 
-  const canApprove = hasFinanceAccess() || isAdmin();
+  // User can approve if they have finance access, are admin, or have been delegated authority
+  const canApprove = hasFinanceAccess() || isAdmin() || hasDelegatedAuthority;
 
   const filteredExpenses = expenses?.filter((expense) => {
     const matchesSearch =
@@ -158,7 +164,22 @@ const Expenses = () => {
         </div>
       </div>
 
-      {/* Stats */}
+      <Tabs defaultValue="expenses" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="expenses" className="gap-2">
+            <DollarSign className="h-4 w-4" />
+            Expenses
+          </TabsTrigger>
+          {canApprove && (
+            <TabsTrigger value="delegations" className="gap-2">
+              <UserCheck className="h-4 w-4" />
+              Delegations
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="expenses" className="space-y-6">
+          {/* Stats */}
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Total Expenses</p>
@@ -388,7 +409,15 @@ const Expenses = () => {
             </TableBody>
           </Table>
         </CardContent>
-      </Card>
+        </Card>
+        </TabsContent>
+
+        {canApprove && (
+          <TabsContent value="delegations">
+            <DelegationManager />
+          </TabsContent>
+        )}
+      </Tabs>
 
       {/* Expense Dialog */}
       <ExpenseDialog
