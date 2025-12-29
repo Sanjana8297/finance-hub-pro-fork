@@ -15,13 +15,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -35,9 +28,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Plus,
   Search,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
   CheckCircle,
   Clock,
   XCircle,
@@ -53,11 +43,11 @@ import { RejectExpenseDialog } from "@/components/expenses/RejectExpenseDialog";
 import { DelegationManager } from "@/components/expenses/DelegationManager";
 import { PolicyManager } from "@/components/expenses/PolicyManager";
 import { PolicyViolationBadge } from "@/components/expenses/PolicyViolationBadge";
+import { ExpenseActions } from "@/components/expenses/ExpenseActions";
 import { ViolationsDashboard } from "@/components/expenses/ViolationsDashboard";
 import {
   useExpenses,
   useExpenseStats,
-  useApproveExpense,
   useRejectExpense,
   useDeleteExpense,
   Expense,
@@ -97,7 +87,6 @@ const Expenses = () => {
   const { data: expenses, isLoading } = useExpenses();
   const { data: stats, isLoading: statsLoading } = useExpenseStats();
   const { data: hasDelegatedAuthority } = useHasDelegatedAuthority();
-  const approveExpense = useApproveExpense();
   const rejectExpense = useRejectExpense();
   const deleteExpense = useDeleteExpense();
 
@@ -382,45 +371,13 @@ const Expenses = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEdit(expense)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            {expense.status === "pending" && canApprove && (
-                              <>
-                                <DropdownMenuItem
-                                  className="text-success"
-                                  onClick={() => approveExpense.mutate(expense.id)}
-                                >
-                                  <CheckCircle className="mr-2 h-4 w-4" />
-                                  Approve
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onClick={() => handleRejectClick(expense)}
-                                >
-                                  <XCircle className="mr-2 h-4 w-4" />
-                                  Reject
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleDeleteClick(expense)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <ExpenseActions
+                          expense={expense}
+                          canApprove={canApprove}
+                          onEdit={handleEdit}
+                          onReject={handleRejectClick}
+                          onDelete={handleDeleteClick}
+                        />
                       </TableCell>
                     </TableRow>
                   );

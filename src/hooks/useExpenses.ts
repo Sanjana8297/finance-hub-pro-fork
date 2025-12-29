@@ -235,6 +235,19 @@ export function useApproveExpense() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
+      // Check for unresolved policy violations
+      const { data: violations, error: violationsError } = await supabase
+        .from("expense_policy_violations")
+        .select("id, resolved")
+        .eq("expense_id", id)
+        .eq("resolved", false);
+
+      if (violationsError) throw violationsError;
+
+      if (violations && violations.length > 0) {
+        throw new Error(`Cannot approve: ${violations.length} unresolved policy violation${violations.length === 1 ? "" : "s"}. Please resolve all violations first.`);
+      }
+
       const { data, error } = await supabase
         .from("expenses")
         .update({
