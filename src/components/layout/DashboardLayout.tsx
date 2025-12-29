@@ -62,11 +62,21 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, signOut } = useAuth();
+  const { profile, roles, signOut } = useAuth();
 
   const handleSignOut = async () => {
     await signOut();
     navigate("/auth");
+  };
+
+  const getRoleDisplay = () => {
+    if (roles.includes("super_admin")) return "Super Admin";
+    if (roles.includes("admin")) return "Admin";
+    if (roles.includes("finance_manager")) return "Finance Manager";
+    if (roles.includes("accountant")) return "Accountant";
+    if (roles.includes("hr")) return "HR";
+    if (roles.includes("auditor")) return "Auditor";
+    return "Employee";
   };
   return (
     <div className="min-h-screen flex w-full bg-background">
@@ -203,7 +213,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     </Avatar>
                     <div className="hidden text-left md:block">
                       <p className="text-sm font-medium">{profile?.full_name || 'User'}</p>
-                      <p className="text-xs text-muted-foreground">Super Admin</p>
+                      <p className="text-xs text-muted-foreground">{getRoleDisplay()}</p>
                     </div>
                   </Button>
                 </DropdownMenuTrigger>
