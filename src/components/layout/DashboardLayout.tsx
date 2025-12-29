@@ -19,9 +19,10 @@ import {
   Building2,
   Wallet
 } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,7 +61,13 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { profile, signOut } = useAuth();
 
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
   return (
     <div className="min-h-screen flex w-full bg-background">
       {/* Sidebar */}
@@ -191,11 +198,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="gap-2 px-2">
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src="https://api.dicebear.com/7.x/avataaars/svg?seed=admin" />
-                      <AvatarFallback>AD</AvatarFallback>
+                      <AvatarImage src={profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.email || 'user'}`} />
+                      <AvatarFallback>{profile?.full_name?.charAt(0) || 'U'}</AvatarFallback>
                     </Avatar>
                     <div className="hidden text-left md:block">
-                      <p className="text-sm font-medium">John Smith</p>
+                      <p className="text-sm font-medium">{profile?.full_name || 'User'}</p>
                       <p className="text-xs text-muted-foreground">Super Admin</p>
                     </div>
                   </Button>
@@ -207,7 +214,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   <DropdownMenuItem>Company Settings</DropdownMenuItem>
                   <DropdownMenuItem>Billing</DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-destructive">
+                  <DropdownMenuItem className="text-destructive" onClick={handleSignOut}>
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign Out
                   </DropdownMenuItem>
