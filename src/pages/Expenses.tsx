@@ -40,6 +40,7 @@ import {
   FileText,
   Wallet,
   RefreshCw,
+  Radar,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ExpenseDialog } from "@/components/expenses/ExpenseDialog";
@@ -53,6 +54,7 @@ import { ExpenseAnalytics } from "@/components/expenses/ExpenseAnalytics";
 import { ExpenseReportGenerator } from "@/components/expenses/ExpenseReportGenerator";
 import { DepartmentBudgetManager } from "@/components/expenses/DepartmentBudgetManager";
 import { RecurringExpenseManager } from "@/components/expenses/RecurringExpenseManager";
+import { AnomalyDetection } from "@/components/expenses/AnomalyDetection";
 import {
   useExpenses,
   useExpenseStats,
@@ -198,6 +200,12 @@ const Expenses = () => {
             <TabsTrigger value="budgets" className="gap-2">
               <Wallet className="h-4 w-4" />
               Budgets
+            </TabsTrigger>
+          )}
+          {canApprove && (
+            <TabsTrigger value="anomalies" className="gap-2">
+              <Radar className="h-4 w-4" />
+              Anomalies
             </TabsTrigger>
           )}
           {canApprove && (
@@ -444,6 +452,12 @@ const Expenses = () => {
         {canApprove && (
           <TabsContent value="budgets">
             <DepartmentBudgetManager />
+          </TabsContent>
+        )}
+
+        {canApprove && (
+          <TabsContent value="anomalies">
+            <AnomalyDetection />
           </TabsContent>
         )}
 
