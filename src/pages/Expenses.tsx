@@ -39,6 +39,7 @@ import {
   BarChart3,
   FileText,
   Wallet,
+  RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ExpenseDialog } from "@/components/expenses/ExpenseDialog";
@@ -51,6 +52,7 @@ import { ViolationsDashboard } from "@/components/expenses/ViolationsDashboard";
 import { ExpenseAnalytics } from "@/components/expenses/ExpenseAnalytics";
 import { ExpenseReportGenerator } from "@/components/expenses/ExpenseReportGenerator";
 import { DepartmentBudgetManager } from "@/components/expenses/DepartmentBudgetManager";
+import { RecurringExpenseManager } from "@/components/expenses/RecurringExpenseManager";
 import {
   useExpenses,
   useExpenseStats,
@@ -169,6 +171,10 @@ const Expenses = () => {
           <TabsTrigger value="expenses" className="gap-2">
             <DollarSign className="h-4 w-4" />
             Expenses
+          </TabsTrigger>
+          <TabsTrigger value="recurring" className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Recurring
           </TabsTrigger>
           {canApprove && (
             <TabsTrigger value="delegations" className="gap-2">
@@ -411,6 +417,10 @@ const Expenses = () => {
           </Table>
         </CardContent>
         </Card>
+        </TabsContent>
+
+        <TabsContent value="recurring">
+          <RecurringExpenseManager />
         </TabsContent>
 
         {canApprove && (
