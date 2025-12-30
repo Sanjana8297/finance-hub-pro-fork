@@ -36,9 +36,11 @@ import {
   Eye,
   ChevronDown,
   ChevronUp,
+  Bell,
+  Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
-import { useExpenseAnomalies, useAnomalySummary, AnomalyType, ExpenseAnomaly } from "@/hooks/useExpenseAnomalies";
+import { useExpenseAnomalies, useAnomalySummary, useSendAnomalyAlert, AnomalyType, ExpenseAnomaly } from "@/hooks/useExpenseAnomalies";
 
 const anomalyTypeConfig: Record<AnomalyType, { label: string; icon: typeof AlertTriangle; color: string }> = {
   high_amount: { label: "High Amount", icon: TrendingUp, color: "text-orange-500" },
@@ -146,6 +148,7 @@ function AnomalyCard({ anomaly }: { anomaly: ExpenseAnomaly }) {
 export function AnomalyDetection() {
   const { data: anomalies, isLoading } = useExpenseAnomalies();
   const { summary } = useAnomalySummary();
+  const sendAlert = useSendAnomalyAlert();
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
 
@@ -154,6 +157,12 @@ export function AnomalyDetection() {
     if (typeFilter !== "all" && a.type !== typeFilter) return false;
     return true;
   });
+
+  const handleSendAlert = () => {
+    if (anomalies) {
+      sendAlert.mutate(anomalies);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -170,6 +179,35 @@ export function AnomalyDetection() {
 
   return (
     <div className="space-y-6">
+      {/* Alert Button for High Severity */}
+      {summary.high > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/50 bg-destructive/5 p-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-destructive" />
+            <div>
+              <p className="font-medium text-destructive">
+                {summary.high} high-severity anomal{summary.high > 1 ? "ies" : "y"} detected
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Alert managers immediately to review flagged expenses
+              </p>
+            </div>
+          </div>
+          <Button 
+            onClick={handleSendAlert} 
+            disabled={sendAlert.isPending}
+            variant="destructive"
+          >
+            {sendAlert.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Bell className="mr-2 h-4 w-4" />
+            )}
+            Send Alert to Managers
+          </Button>
+        </div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card variant="stat" className="p-4">

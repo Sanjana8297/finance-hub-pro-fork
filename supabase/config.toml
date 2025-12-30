@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.send-policy-violation-notification]
 verify_jwt = true
+
+[functions.send-expense-notification]
+verify_jwt = true
+
+[functions.send-anomaly-alert]
+verify_jwt = true

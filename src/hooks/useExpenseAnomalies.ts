@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { subDays, differenceInHours, parseISO, isSameDay } from "date-fns";
+import { subDays, isSameDay, parseISO } from "date-fns";
+import { toast } from "sonner";
 
 export type AnomalyType =
   | "high_amount"
@@ -310,4 +311,32 @@ export function useAnomalySummary() {
   }
 
   return { summary, isLoading };
+}
+
+export function useSendAnomalyAlert() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (anomalies: ExpenseAnomaly[]) => {
+      const highSeverityAnomalies = anomalies.filter(a => a.severity === "high");
+      
+      if (highSeverityAnomalies.length === 0) {
+        throw new Error("No high-severity anomalies to report");
+      }
+
+      const { data, error } = await supabase.functions.invoke("send-anomaly-alert", {
+        body: { anomalies: highSeverityAnomalies },
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Alert sent to ${data.sent} manager${data.sent !== 1 ? "s" : ""}`);
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to send alert: ${error.message}`);
+    },
+  });
 }
