@@ -14,6 +14,198 @@ export type Database = {
   }
   public: {
     Tables: {
+      anomaly_detection_settings: {
+        Row: {
+          approval_threshold_percent: number
+          company_id: string | null
+          created_at: string
+          duplicate_window_hours: number
+          high_amount_threshold_percent: number
+          id: string
+          is_active: boolean
+          rapid_succession_minutes: number
+          round_amount_threshold: number
+          updated_at: string
+          updated_by: string | null
+          weekend_detection_enabled: boolean
+        }
+        Insert: {
+          approval_threshold_percent?: number
+          company_id?: string | null
+          created_at?: string
+          duplicate_window_hours?: number
+          high_amount_threshold_percent?: number
+          id?: string
+          is_active?: boolean
+          rapid_succession_minutes?: number
+          round_amount_threshold?: number
+          updated_at?: string
+          updated_by?: string | null
+          weekend_detection_enabled?: boolean
+        }
+        Update: {
+          approval_threshold_percent?: number
+          company_id?: string | null
+          created_at?: string
+          duplicate_window_hours?: number
+          high_amount_threshold_percent?: number
+          id?: string
+          is_active?: boolean
+          rapid_succession_minutes?: number
+          round_amount_threshold?: number
+          updated_at?: string
+          updated_by?: string | null
+          weekend_detection_enabled?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anomaly_detection_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      anomaly_reviews: {
+        Row: {
+          anomaly_type: string
+          company_id: string | null
+          created_at: string
+          expense_id: string
+          id: string
+          resolution_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          severity: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          anomaly_type: string
+          company_id?: string | null
+          created_at?: string
+          expense_id: string
+          id?: string
+          resolution_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          severity: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          anomaly_type?: string
+          company_id?: string | null
+          created_at?: string
+          expense_id?: string
+          id?: string
+          resolution_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          severity?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anomaly_reviews_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anomaly_reviews_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      approval_chain_levels: {
+        Row: {
+          chain_id: string
+          created_at: string
+          id: string
+          level_order: number
+          required_approvers: number
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          chain_id: string
+          created_at?: string
+          id?: string
+          level_order: number
+          required_approvers?: number
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          chain_id?: string
+          created_at?: string
+          id?: string
+          level_order?: number
+          required_approvers?: number
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approval_chain_levels_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "approval_chains"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      approval_chains: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          max_amount: number | null
+          min_amount: number
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          max_amount?: number | null
+          min_amount?: number
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          max_amount?: number | null
+          min_amount?: number
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approval_chains_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -200,6 +392,89 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_approval_actions: {
+        Row: {
+          action: string
+          approved_by: string
+          comments: string | null
+          created_at: string
+          expense_approval_id: string
+          id: string
+          level_order: number
+        }
+        Insert: {
+          action: string
+          approved_by: string
+          comments?: string | null
+          created_at?: string
+          expense_approval_id: string
+          id?: string
+          level_order: number
+        }
+        Update: {
+          action?: string
+          approved_by?: string
+          comments?: string | null
+          created_at?: string
+          expense_approval_id?: string
+          id?: string
+          level_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_approval_actions_expense_approval_id_fkey"
+            columns: ["expense_approval_id"]
+            isOneToOne: false
+            referencedRelation: "expense_approvals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_approvals: {
+        Row: {
+          chain_id: string | null
+          created_at: string
+          current_level: number
+          expense_id: string
+          id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          chain_id?: string | null
+          created_at?: string
+          current_level?: number
+          expense_id: string
+          id?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          chain_id?: string | null
+          created_at?: string
+          current_level?: number
+          expense_id?: string
+          id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_approvals_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "approval_chains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_approvals_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
             referencedColumns: ["id"]
           },
         ]

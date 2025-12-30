@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Building2,
   Upload,
@@ -17,7 +18,12 @@ import {
   Globe,
   Mail,
   Loader2,
+  GitBranch,
+  TrendingUp,
 } from "lucide-react";
+import { ApprovalChainManager } from "@/components/expenses/ApprovalChainManager";
+import { AnomalyReviewManager } from "@/components/expenses/AnomalyReviewManager";
+import { AnomalyDetectionSettings } from "@/components/settings/AnomalyDetectionSettings";
 import { useCompany, useUpdateCompany, useUploadCompanyLogo } from "@/hooks/useCompany";
 
 const Settings = () => {
@@ -85,6 +91,20 @@ const Settings = () => {
         </p>
       </div>
 
+      <Tabs defaultValue="company" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="company">Company</TabsTrigger>
+          <TabsTrigger value="approvals" className="gap-2">
+            <GitBranch className="h-4 w-4" />
+            Approval Chains
+          </TabsTrigger>
+          <TabsTrigger value="anomalies" className="gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Anomaly Detection
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="company">
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main Settings */}
         <div className="lg:col-span-2 space-y-6">
@@ -420,6 +440,17 @@ const Settings = () => {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="approvals">
+          <ApprovalChainManager />
+        </TabsContent>
+
+        <TabsContent value="anomalies" className="space-y-6">
+          <AnomalyDetectionSettings />
+          <AnomalyReviewManager />
+        </TabsContent>
+      </Tabs>
     </DashboardLayout>
   );
 };
