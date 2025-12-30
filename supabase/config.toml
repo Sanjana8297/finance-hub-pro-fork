@@ -20,3 +20,6 @@ verify_jwt = true
 
 [functions.send-anomaly-alert]
 verify_jwt = true
+
+[functions.scheduled-anomaly-scan]
+verify_jwt = false
