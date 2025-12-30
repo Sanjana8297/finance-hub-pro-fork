@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AreaChart,
   Area,
@@ -18,7 +19,8 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, subMonths, startOfMonth, endOfMonth, differenceInHours } from "date-fns";
-import { TrendingUp, AlertTriangle, Clock, DollarSign } from "lucide-react";
+import { TrendingUp, AlertTriangle, Clock, DollarSign, Target } from "lucide-react";
+import { ExpenseForecasting } from "./ExpenseForecasting";
 
 // Hook for spending trends (last 6 months by category)
 function useSpendingTrends() {
@@ -215,7 +217,19 @@ export function ExpenseAnalytics() {
   const { data: summary, isLoading: summaryLoading } = useAnalyticsSummary();
 
   return (
-    <div className="space-y-6">
+    <Tabs defaultValue="overview" className="space-y-6">
+      <TabsList>
+        <TabsTrigger value="overview" className="gap-2">
+          <DollarSign className="h-4 w-4" />
+          Overview
+        </TabsTrigger>
+        <TabsTrigger value="forecast" className="gap-2">
+          <Target className="h-4 w-4" />
+          Forecasting
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="overview" className="space-y-6">
       {/* Summary Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card variant="stat" className="p-4">
@@ -469,6 +483,11 @@ export function ExpenseAnalytics() {
           </CardContent>
         </Card>
       </div>
-    </div>
+      </TabsContent>
+
+      <TabsContent value="forecast">
+        <ExpenseForecasting />
+      </TabsContent>
+    </Tabs>
   );
 }
