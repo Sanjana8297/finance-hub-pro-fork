@@ -841,6 +841,87 @@ export type Database = {
           },
         ]
       }
+      recurring_expenses: {
+        Row: {
+          amount: number
+          auto_submit: boolean
+          category_id: string | null
+          company_id: string | null
+          created_at: string
+          created_by: string | null
+          currency: string | null
+          department: string | null
+          description: string
+          end_date: string | null
+          frequency: string
+          id: string
+          is_active: boolean
+          last_generated_date: string | null
+          next_due_date: string
+          notes: string | null
+          start_date: string
+          updated_at: string
+          vendor: string | null
+        }
+        Insert: {
+          amount: number
+          auto_submit?: boolean
+          category_id?: string | null
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string | null
+          department?: string | null
+          description: string
+          end_date?: string | null
+          frequency: string
+          id?: string
+          is_active?: boolean
+          last_generated_date?: string | null
+          next_due_date: string
+          notes?: string | null
+          start_date?: string
+          updated_at?: string
+          vendor?: string | null
+        }
+        Update: {
+          amount?: number
+          auto_submit?: boolean
+          category_id?: string | null
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string | null
+          department?: string | null
+          description?: string
+          end_date?: string | null
+          frequency?: string
+          id?: string
+          is_active?: boolean
+          last_generated_date?: string | null
+          next_due_date?: string
+          notes?: string | null
+          start_date?: string
+          updated_at?: string
+          vendor?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recurring_expenses_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recurring_expenses_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
