@@ -14,6 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { generateReportPDF, downloadPDF } from "@/components/reports/ReportGenerator";
+import { CustomReportDialog } from "@/components/reports/CustomReportDialog";
 import { useInvoices, useInvoiceStats } from "@/hooks/useInvoices";
 import { useExpenses, useExpenseStats } from "@/hooks/useExpenses";
 import { useEmployees } from "@/hooks/useEmployees";
@@ -75,6 +76,7 @@ const reports = [
 const Reports = () => {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [customReportOpen, setCustomReportOpen] = useState(false);
   const { toast } = useToast();
   const { data: company } = useCompany();
   const { data: invoices } = useInvoices();
@@ -360,7 +362,7 @@ const Reports = () => {
               <Calendar className="mr-2 h-4 w-4" />
               December 2024
             </Button>
-            <Button>
+            <Button onClick={() => setCustomReportOpen(true)}>
               <FileText className="mr-2 h-4 w-4" />
               Custom Report
             </Button>
@@ -448,6 +450,12 @@ const Reports = () => {
           </Card>
         </div>
       </div>
+
+      {/* Custom Report Dialog */}
+      <CustomReportDialog
+        open={customReportOpen}
+        onOpenChange={setCustomReportOpen}
+      />
     </DashboardLayout>
   );
 };
