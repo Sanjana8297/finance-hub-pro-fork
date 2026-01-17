@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Building2,
   Upload,
@@ -25,12 +27,42 @@ import { ApprovalChainManager } from "@/components/expenses/ApprovalChainManager
 import { AnomalyReviewManager } from "@/components/expenses/AnomalyReviewManager";
 import { AnomalyDetectionSettings } from "@/components/settings/AnomalyDetectionSettings";
 import { useCompany, useUpdateCompany, useUploadCompanyLogo } from "@/hooks/useCompany";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { User, Key, Mail, Phone } from "lucide-react";
 
 const Settings = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab") || "company";
   const { data: company, isLoading } = useCompany();
   const updateCompany = useUpdateCompany();
   const uploadLogo = useUploadCompanyLogo();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { profile, user } = useAuth();
+  const { toast } = useToast();
+
+  const [profileData, setProfileData] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+  });
+
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+
+  useEffect(() => {
+    if (profile) {
+      setProfileData({
+        fullName: profile.full_name || "",
+        email: profile.email || "",
+        phone: profile.phone || "",
+      });
+    }
+  }, [profile]);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -81,6 +113,78 @@ const Settings = () => {
       .slice(0, 2);
   };
 
+  const handleUpdateProfile = async () => {
+    if (!user?.id) return;
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          full_name: profileData.fullName,
+          phone: profileData.phone || null,
+        })
+        .eq("id", user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Profile updated",
+        description: "Your profile has been successfully updated.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Update failed",
+        description: error.message || "Failed to update profile. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast({
+        title: "Password mismatch",
+        description: "New password and confirm password do not match.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      toast({
+        title: "Password too short",
+        description: "Password must be at least 6 characters long.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: passwordData.newPassword,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Password updated",
+        description: "Your password has been successfully updated.",
+      });
+
+      setPasswordData({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Password update failed",
+        description: error.message || "Failed to update password. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <DashboardLayout>
       {/* Page Header */}
@@ -91,9 +195,17 @@ const Settings = () => {
         </p>
       </div>
 
-      <Tabs defaultValue="company" className="space-y-6">
+      <Tabs 
+        value={tabParam} 
+        onValueChange={(value) => {
+          setSearchParams({ tab: value });
+        }}
+        className="space-y-6"
+      >
         <TabsList>
+          <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="company">Company</TabsTrigger>
+          <TabsTrigger value="billing">Billing</TabsTrigger>
           <TabsTrigger value="approvals" className="gap-2">
             <GitBranch className="h-4 w-4" />
             Approval Chains
@@ -103,6 +215,166 @@ const Settings = () => {
             Anomaly Detection
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="profile">
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Main Profile Settings */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Personal Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5" />
+                    Personal Information
+                  </CardTitle>
+                  <CardDescription>
+                    Update your personal details and contact information
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <Avatar className="h-20 w-20">
+                      <AvatarImage
+                        src={profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.email || 'user'}`}
+                      />
+                      <AvatarFallback>
+                        {profile?.full_name?.charAt(0) || 'U'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <Button variant="outline">
+                      Change Avatar
+                    </Button>
+                  </div>
+                  <Separator />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="profile-fullName">Full Name</Label>
+                      <Input
+                        id="profile-fullName"
+                        value={profileData.fullName}
+                        onChange={(e) =>
+                          setProfileData((prev) => ({ ...prev, fullName: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="profile-email">Email</Label>
+                      <Input
+                        id="profile-email"
+                        type="email"
+                        value={profileData.email}
+                        disabled
+                        className="bg-muted"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Email cannot be changed
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="profile-phone">Phone</Label>
+                      <Input
+                        id="profile-phone"
+                        type="tel"
+                        value={profileData.phone}
+                        onChange={(e) =>
+                          setProfileData((prev) => ({ ...prev, phone: e.target.value }))
+                        }
+                        placeholder="+1 (555) 123-4567"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button onClick={handleUpdateProfile}>
+                      <Save className="mr-2 h-4 w-4" />
+                      Save Changes
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Change Password */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5" />
+                    Change Password
+                  </CardTitle>
+                  <CardDescription>
+                    Update your password to keep your account secure
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="current-password">Current Password</Label>
+                      <Input
+                        id="current-password"
+                        type="password"
+                        value={passwordData.currentPassword}
+                        onChange={(e) =>
+                          setPasswordData((prev) => ({ ...prev, currentPassword: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-password">New Password</Label>
+                      <Input
+                        id="new-password"
+                        type="password"
+                        value={passwordData.newPassword}
+                        onChange={(e) =>
+                          setPasswordData((prev) => ({ ...prev, newPassword: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm-password">Confirm New Password</Label>
+                      <Input
+                        id="confirm-password"
+                        type="password"
+                        value={passwordData.confirmPassword}
+                        onChange={(e) =>
+                          setPasswordData((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button onClick={handleChangePassword}>
+                      <Key className="mr-2 h-4 w-4" />
+                      Update Password
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Sidebar */}
+            <div className="space-y-6">
+              {/* Account Info */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Account Information</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">User ID</p>
+                    <p className="font-mono text-xs">{user?.id || "N/A"}</p>
+                  </div>
+                  <Separator />
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">Member Since</p>
+                    <p className="text-sm">
+                      {profile?.created_at
+                        ? new Date(profile.created_at).toLocaleDateString()
+                        : "N/A"}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
 
         <TabsContent value="company">
       <div className="grid gap-6 lg:grid-cols-3">

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,12 @@ import {
   UserCheck,
   UserX,
 } from "lucide-react";
+import { UserDialog } from "@/components/users/UserDialog";
+import { ViewProfileDialog } from "@/components/users/ViewProfileDialog";
+import { EditUserDialog } from "@/components/users/EditUserDialog";
+import { ManageRolesDialog } from "@/components/users/ManageRolesDialog";
+import { useUsers, UserWithRoles } from "@/hooks/useUsers";
+import { format } from "date-fns";
 
 interface User {
   id: string;
@@ -126,8 +133,107 @@ const roleLabels: Record<string, string> = {
 };
 
 const Users = () => {
-  const activeUsers = users.filter((u) => u.status === "active").length;
-  const inactiveUsers = users.filter((u) => u.status === "inactive").length;
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [rolesDialogOpen, setRolesDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserWithRoles | null>(null);
+  const { data: usersData, isLoading } = useUsers();
+
+  // Use data from API if available, otherwise use mock data
+  const allUsers: (UserWithRoles | User)[] = usersData || users;
+
+  // Map database users to display format
+  const displayUsers = allUsers.map((user) => {
+    if ("full_name" in user) {
+      // Database user
+      return {
+        id: user.id,
+        name: user.full_name || user.email || "Unknown",
+        email: user.email || "",
+        avatar: user.full_name?.toLowerCase().replace(/\s+/g, "-") || user.email?.split("@")[0] || "user",
+        roles: user.roles || [],
+        status: "active" as const, // Assume active for now
+        lastLogin: user.updated_at ? format(new Date(user.updated_at), "MMM d, yyyy HH:mm") : "Never",
+        createdAt: user.created_at ? format(new Date(user.created_at), "MMM d, yyyy") : "Unknown",
+      };
+    }
+    return user;
+  });
+
+  const activeUsers = displayUsers.filter((u) => u.status === "active").length;
+  const inactiveUsers = displayUsers.filter((u) => u.status === "inactive").length;
+
+  const handleAddUser = () => {
+    setSelectedUser(null);
+    setDialogOpen(true);
+  };
+
+  const handleViewProfile = (displayUser: User) => {
+    // Find the original user data
+    const originalUser = allUsers.find((u) => u.id === displayUser.id);
+    if (originalUser && "full_name" in originalUser) {
+      setSelectedUser(originalUser as UserWithRoles);
+    } else {
+      // Convert mock user to UserWithRoles format
+      setSelectedUser({
+        id: displayUser.id,
+        email: displayUser.email,
+        full_name: displayUser.name,
+        phone: null,
+        avatar_url: null,
+        company_id: null,
+        created_at: displayUser.createdAt,
+        updated_at: displayUser.lastLogin,
+        roles: displayUser.roles,
+      } as UserWithRoles);
+    }
+    setViewDialogOpen(true);
+  };
+
+  const handleEditUser = (displayUser: User) => {
+    // Find the original user data
+    const originalUser = allUsers.find((u) => u.id === displayUser.id);
+    if (originalUser && "full_name" in originalUser) {
+      setSelectedUser(originalUser as UserWithRoles);
+    } else {
+      // Convert mock user to UserWithRoles format
+      setSelectedUser({
+        id: displayUser.id,
+        email: displayUser.email,
+        full_name: displayUser.name,
+        phone: null,
+        avatar_url: null,
+        company_id: null,
+        created_at: displayUser.createdAt,
+        updated_at: displayUser.lastLogin,
+        roles: displayUser.roles,
+      } as UserWithRoles);
+    }
+    setEditDialogOpen(true);
+  };
+
+  const handleManageRoles = (displayUser: User) => {
+    // Find the original user data
+    const originalUser = allUsers.find((u) => u.id === displayUser.id);
+    if (originalUser && "full_name" in originalUser) {
+      setSelectedUser(originalUser as UserWithRoles);
+    } else {
+      // Convert mock user to UserWithRoles format
+      setSelectedUser({
+        id: displayUser.id,
+        email: displayUser.email,
+        full_name: displayUser.name,
+        phone: null,
+        avatar_url: null,
+        company_id: null,
+        created_at: displayUser.createdAt,
+        updated_at: displayUser.lastLogin,
+        roles: displayUser.roles,
+      } as UserWithRoles);
+    }
+    setRolesDialogOpen(true);
+  };
 
   return (
     <DashboardLayout>
@@ -140,7 +246,7 @@ const Users = () => {
               Manage users, roles, and permissions
             </p>
           </div>
-          <Button>
+          <Button onClick={handleAddUser}>
             <Plus className="mr-2 h-4 w-4" />
             Add User
           </Button>
@@ -151,7 +257,7 @@ const Users = () => {
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Total Users</p>
-          <p className="text-2xl font-bold">{users.length}</p>
+          <p className="text-2xl font-bold">{displayUsers.length}</p>
         </Card>
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Active</p>
@@ -164,7 +270,7 @@ const Users = () => {
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Admins</p>
           <p className="text-2xl font-bold">
-            {users.filter((u) => u.roles.includes("super_admin") || u.roles.includes("admin")).length}
+            {displayUsers.filter((u) => u.roles.includes("super_admin") || u.roles.includes("admin")).length}
           </p>
         </Card>
       </div>
@@ -206,7 +312,20 @@ const Users = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((user) => (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    Loading users...
+                  </TableCell>
+                </TableRow>
+              ) : displayUsers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    No users found. Click "Add User" to get started.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                displayUsers.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
@@ -258,15 +377,15 @@ const Users = () => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleViewProfile(user)}>
                           <Eye className="mr-2 h-4 w-4" />
                           View Profile
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleEditUser(user)}>
                           <Pencil className="mr-2 h-4 w-4" />
                           Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleManageRoles(user)}>
                           <Shield className="mr-2 h-4 w-4" />
                           Manage Roles
                         </DropdownMenuItem>
@@ -278,11 +397,30 @@ const Users = () => {
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
-              ))}
+              ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      {/* User Dialogs */}
+      <UserDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <ViewProfileDialog
+        user={selectedUser}
+        open={viewDialogOpen}
+        onOpenChange={setViewDialogOpen}
+      />
+      <EditUserDialog
+        user={selectedUser}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+      />
+      <ManageRolesDialog
+        user={selectedUser}
+        open={rolesDialogOpen}
+        onOpenChange={setRolesDialogOpen}
+      />
     </DashboardLayout>
   );
 };
