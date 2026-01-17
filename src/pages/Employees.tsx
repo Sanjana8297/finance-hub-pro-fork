@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,8 +32,10 @@ import {
   MapPin,
   Building,
 } from "lucide-react";
+import { EmployeeDialog } from "@/components/employees/EmployeeDialog";
+import { Employee, useEmployees, useDeleteEmployee } from "@/hooks/useEmployees";
 
-interface Employee {
+interface MockEmployee {
   id: string;
   name: string;
   email: string;
@@ -46,7 +49,7 @@ interface Employee {
   avatar: string;
 }
 
-const employees: Employee[] = [
+const mockEmployees: MockEmployee[] = [
   {
     id: "1",
     name: "Sarah Johnson",
@@ -143,10 +146,35 @@ const statusConfig = {
 };
 
 const Employees = () => {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const { data: employeesData, isLoading } = useEmployees();
+  const deleteEmployee = useDeleteEmployee();
+
+  // Use data from API if available, otherwise use mock data
+  // Convert mock data to match Employee type if needed
+  const employees: (Employee | MockEmployee)[] = employeesData !== undefined ? (employeesData || []) : (mockEmployees as any);
+  
   const totalEmployees = employees.length;
   const activeCount = employees.filter((e) => e.status === "active").length;
   const onLeaveCount = employees.filter((e) => e.status === "on-leave").length;
-  const totalPayroll = employees.reduce((sum, e) => sum + e.salary, 0);
+  const totalPayroll = employees.reduce((sum, e) => sum + (Number(e.salary) || 0), 0);
+
+  const handleAddEmployee = () => {
+    setSelectedEmployee(null);
+    setDialogOpen(true);
+  };
+
+  const handleEditEmployee = (employee: Employee) => {
+    setSelectedEmployee(employee);
+    setDialogOpen(true);
+  };
+
+  const handleDeleteEmployee = async (employee: Employee) => {
+    if (confirm(`Are you sure you want to remove ${employee.full_name}?`)) {
+      await deleteEmployee.mutateAsync(employee.id);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -159,7 +187,7 @@ const Employees = () => {
               Manage your team and employee information
             </p>
           </div>
-          <Button>
+          <Button onClick={handleAddEmployee}>
             <Plus className="mr-2 h-4 w-4" />
             Add Employee
           </Button>
@@ -211,23 +239,42 @@ const Employees = () => {
       </Card>
 
       {/* Employees Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {employees.map((employee) => {
-          const status = statusConfig[employee.status];
+      {isLoading ? (
+        <div className="text-center py-8 text-muted-foreground">
+          Loading employees...
+        </div>
+      ) : employees.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          No employees found. Click "Add Employee" to get started.
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {employees.map((employee) => {
+          // Handle both mock data structure and database structure
+          const employeeName = (employee as any).name || employee.full_name || "Unknown";
+          const employeePosition = employee.position || "";
+          const employeeEmail = employee.email || "";
+          const employeeDepartment = employee.department || "";
+          const employeeLocation = employee.location || "";
+          const employeeStatus = (employee.status as "active" | "on-leave" | "terminated") || "active";
+          const employeeJoinDate = (employee as any).joinDate || (employee.hire_date ? new Date(employee.hire_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "");
+          const avatarSeed = (employee as any).avatar || employeeName.toLowerCase().replace(/\s+/g, "-");
+          
+          const status = statusConfig[employeeStatus as keyof typeof statusConfig] || statusConfig.active;
           return (
             <Card key={employee.id} variant="stat" className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-12 w-12">
                     <AvatarImage
-                      src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${employee.avatar}`}
+                      src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`}
                     />
-                    <AvatarFallback>{employee.name.charAt(0)}</AvatarFallback>
+                    <AvatarFallback>{employeeName.charAt(0)}</AvatarFallback>
                   </Avatar>
                   <div>
-                    <h3 className="font-semibold">{employee.name}</h3>
+                    <h3 className="font-semibold">{employeeName}</h3>
                     <p className="text-sm text-muted-foreground">
-                      {employee.position}
+                      {employeePosition}
                     </p>
                   </div>
                 </div>
@@ -242,11 +289,14 @@ const Employees = () => {
                       <Eye className="mr-2 h-4 w-4" />
                       View Profile
                     </DropdownMenuItem>
-                    <DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleEditEmployee(employee)}>
                       <Pencil className="mr-2 h-4 w-4" />
                       Edit
                     </DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive">
+                    <DropdownMenuItem 
+                      className="text-destructive"
+                      onClick={() => handleDeleteEmployee(employee)}
+                    >
                       <Trash2 className="mr-2 h-4 w-4" />
                       Remove
                     </DropdownMenuItem>
@@ -257,28 +307,38 @@ const Employees = () => {
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Mail className="h-4 w-4" />
-                  <span className="truncate">{employee.email}</span>
+                  <span className="truncate">{employeeEmail}</span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Building className="h-4 w-4" />
-                  <span>{employee.department}</span>
+                  <span>{employeeDepartment}</span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <MapPin className="h-4 w-4" />
-                  <span>{employee.location}</span>
+                  <span>{employeeLocation}</span>
                 </div>
               </div>
 
               <div className="mt-4 flex items-center justify-between pt-4 border-t border-border/50">
                 <Badge variant={status.variant}>{status.label}</Badge>
-                <span className="text-sm text-muted-foreground">
-                  Since {employee.joinDate}
-                </span>
+                {employeeJoinDate && (
+                  <span className="text-sm text-muted-foreground">
+                    Since {employeeJoinDate}
+                  </span>
+                )}
               </div>
             </Card>
           );
         })}
-      </div>
+        </div>
+      )}
+
+      {/* Employee Dialog */}
+      <EmployeeDialog
+        employee={selectedEmployee}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
     </DashboardLayout>
   );
 };

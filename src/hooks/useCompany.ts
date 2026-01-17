@@ -9,13 +9,25 @@ export function useCompany() {
   return useQuery({
     queryKey: ["company"],
     queryFn: async () => {
-      const { data: profile } = await supabase
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        return null;
+      }
+
+      // Get profile for current user
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("company_id")
+        .eq("id", user.id)
         .single();
 
-      if (!profile?.company_id) return null;
+      if (profileError || !profile?.company_id) {
+        return null;
+      }
 
+      // Get company data
       const { data, error } = await supabase
         .from("companies")
         .select("*")
