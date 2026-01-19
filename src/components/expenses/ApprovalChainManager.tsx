@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, MoreHorizontal, Pencil, Trash2, GitBranch, Users } from "lucide-react";
 import { useApprovalChains, useDeleteApprovalChain, ApprovalChainWithLevels } from "@/hooks/useApprovalChains";
 import { ApprovalChainDialog } from "./ApprovalChainDialog";
+import { useCompany } from "@/hooks/useCompany";
 
 const roleLabels: Record<string, string> = {
   super_admin: "Super Admin",
@@ -22,6 +23,7 @@ const roleLabels: Record<string, string> = {
 
 export function ApprovalChainManager() {
   const { data: chains, isLoading } = useApprovalChains();
+  const { data: company } = useCompany();
   const deleteChain = useDeleteApprovalChain();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingChain, setEditingChain] = useState<ApprovalChainWithLevels | null>(null);
@@ -52,7 +54,9 @@ export function ApprovalChainManager() {
   };
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+    const currency = company?.currency || "INR";
+    const locale = currency === "INR" ? "en-IN" : "en-US";
+    return new Intl.NumberFormat(locale, { style: "currency", currency }).format(amount);
   };
 
   return (

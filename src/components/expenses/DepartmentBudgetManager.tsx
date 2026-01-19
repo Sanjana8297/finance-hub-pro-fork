@@ -57,6 +57,7 @@ import {
   DepartmentBudget,
 } from "@/hooks/useDepartmentBudgets";
 import { useQuery } from "@tanstack/react-query";
+import { useCompany } from "@/hooks/useCompany";
 import { supabase } from "@/integrations/supabase/client";
 
 function useUniqueDepartments() {
@@ -89,6 +90,7 @@ export function DepartmentBudgetManager() {
   const { data: budgets, isLoading: budgetsLoading } = useDepartmentBudgets();
   const { data: statuses, isLoading: statusesLoading } = useDepartmentBudgetStatus();
   const { data: departments } = useUniqueDepartments();
+  const { data: company } = useCompany();
   const createBudget = useCreateDepartmentBudget();
   const updateBudget = useUpdateDepartmentBudget();
   const deleteBudget = useDeleteDepartmentBudget();
@@ -143,12 +145,15 @@ export function DepartmentBudgetManager() {
   const budgetedDepts = new Set(budgets?.map((b) => b.department) || []);
   const availableDepts = departments?.filter((d) => !budgetedDepts.has(d)) || [];
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", {
+  const formatCurrency = (value: number) => {
+    const currency = company?.currency || "INR";
+    const locale = currency === "INR" ? "en-IN" : "en-US";
+    return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: "USD",
+      currency,
       minimumFractionDigits: 0,
     }).format(value);
+  };
 
   const getStatusBadge = (status: "ok" | "warning" | "exceeded") => {
     switch (status) {

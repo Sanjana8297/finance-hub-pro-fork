@@ -5,6 +5,7 @@ import {
   View,
   StyleSheet,
   pdf,
+  Image,
 } from "@react-pdf/renderer";
 import { Invoice, InvoiceItem } from "@/hooks/useInvoices";
 import { format } from "date-fns";
@@ -23,6 +24,15 @@ const styles = StyleSheet.create({
   },
   companyInfo: {
     maxWidth: 200,
+  },
+  logoContainer: {
+    marginBottom: 12,
+  },
+  logo: {
+    width: 100,
+    height: 50,
+    maxWidth: 100,
+    maxHeight: 50,
   },
   companyName: {
     fontSize: 20,
@@ -226,13 +236,21 @@ interface InvoicePDFProps {
   items: InvoiceItem[];
   companyName?: string;
   companyAddress?: string;
+  companyLogo?: string;
+  companyEmail?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
 }
 
 const InvoicePDFDocument = ({
   invoice,
   items,
   companyName = "Your Company",
-  companyAddress = "123 Business Street\nCity, State 12345\ncontact@company.com",
+  companyAddress = "123 Business Street\nCity, State 12345",
+  companyLogo,
+  companyEmail,
+  companyPhone,
+  companyWebsite,
 }: InvoicePDFProps) => {
   const getStatusStyle = () => {
     switch (invoice.status) {
@@ -246,10 +264,25 @@ const InvoicePDFDocument = ({
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
+    return new Intl.NumberFormat("en-IN", {
       style: "currency",
-      currency: invoice.currency || "USD",
+      currency: invoice.currency || "INR",
     }).format(amount);
+  };
+
+  // Format company address with additional details
+  const formatCompanyDetails = () => {
+    let details = companyAddress || "";
+    if (companyEmail) {
+      details += (details ? "\n" : "") + companyEmail;
+    }
+    if (companyPhone) {
+      details += (details ? "\n" : "") + companyPhone;
+    }
+    if (companyWebsite) {
+      details += (details ? "\n" : "") + companyWebsite;
+    }
+    return details;
   };
 
   return (
@@ -258,8 +291,16 @@ const InvoicePDFDocument = ({
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.companyInfo}>
+            {companyLogo ? (
+              <View style={styles.logoContainer}>
+                <Image 
+                  src={companyLogo}
+                  style={styles.logo}
+                />
+              </View>
+            ) : null}
             <Text style={styles.companyName}>{companyName}</Text>
-            <Text style={styles.companyDetails}>{companyAddress}</Text>
+            <Text style={styles.companyDetails}>{formatCompanyDetails()}</Text>
           </View>
           <View style={styles.invoiceTitle}>
             <Text style={styles.invoiceLabel}>INVOICE</Text>
@@ -379,7 +420,11 @@ export async function generateInvoicePDF(
   invoice: Invoice,
   items: InvoiceItem[],
   companyName?: string,
-  companyAddress?: string
+  companyAddress?: string,
+  companyLogo?: string,
+  companyEmail?: string,
+  companyPhone?: string,
+  companyWebsite?: string
 ): Promise<Blob> {
   const doc = (
     <InvoicePDFDocument
@@ -387,6 +432,10 @@ export async function generateInvoicePDF(
       items={items}
       companyName={companyName}
       companyAddress={companyAddress}
+      companyLogo={companyLogo}
+      companyEmail={companyEmail}
+      companyPhone={companyPhone}
+      companyWebsite={companyWebsite}
     />
   );
   const blob = await pdf(doc).toBlob();

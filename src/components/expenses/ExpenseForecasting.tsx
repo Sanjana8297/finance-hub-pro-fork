@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, subMonths, startOfMonth, endOfMonth, addMonths } from "date-fns";
 import { TrendingUp, TrendingDown, Target, AlertTriangle, Calendar } from "lucide-react";
+import { useCompany } from "@/hooks/useCompany";
 
 interface MonthlyData {
   month: string;
@@ -204,11 +205,14 @@ function useExpenseForecast() {
 
 export function ExpenseForecasting() {
   const { data: forecast, isLoading } = useExpenseForecast();
+  const { data: company } = useCompany();
 
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
+    const currency = company?.currency || "INR";
+    const locale = currency === "INR" ? "en-IN" : "en-US";
+    return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: "USD",
+      currency,
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(value);

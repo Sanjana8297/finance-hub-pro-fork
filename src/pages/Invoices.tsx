@@ -110,18 +110,72 @@ const Invoices = () => {
       setDownloadingId(invoice.id);
       
       // Fetch invoice items
-      const { data: items, error } = await supabase
+      const { data: items, error: itemsError } = await supabase
         .from("invoice_items")
         .select("*")
         .eq("invoice_id", invoice.id);
       
-      if (error) throw error;
+      if (itemsError) throw itemsError;
+      
+      // Fetch fresh company data directly from database to ensure latest logo
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("User not authenticated");
+      
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("id", user.id)
+        .single();
+      
+      let freshCompany = null;
+      if (profile?.company_id) {
+        const { data: companyData, error: companyError } = await supabase
+          .from("companies")
+          .select("*")
+          .eq("id", profile.company_id)
+          .single();
+        
+        if (companyError) {
+          console.error("Error fetching company:", companyError);
+          // Fallback to cached company data
+          freshCompany = company;
+        } else {
+          freshCompany = companyData;
+          console.log("Fetched fresh company data:", {
+            logo_url: companyData?.logo_url,
+            name: companyData?.name
+          });
+        }
+      }
+      
+      // Use fresh company data, fallback to cached if fetch failed
+      const companyData = freshCompany || company;
+      
+      // Get logo URL - clean it and ensure it's valid
+      let logoUrl = companyData?.logo_url;
+      if (logoUrl) {
+        // Remove any existing query parameters
+        logoUrl = logoUrl.split('?')[0];
+        // Ensure it's a valid URL
+        if (!logoUrl.startsWith('http://') && !logoUrl.startsWith('https://')) {
+          console.warn("Invalid logo URL format:", logoUrl);
+          logoUrl = undefined;
+        } else {
+          console.log("Using logo URL for PDF:", logoUrl);
+        }
+      } else {
+        console.log("No logo URL found in company data");
+      }
       
       const blob = await generateInvoicePDF(
         invoice, 
         items || [],
-        company?.name || undefined,
-        company?.address || undefined
+        companyData?.name || undefined,
+        companyData?.address || undefined,
+        logoUrl || undefined,
+        companyData?.email || undefined,
+        companyData?.phone || undefined,
+        companyData?.website || undefined
       );
       downloadPDF(blob, `${invoice.invoice_number}.pdf`);
       

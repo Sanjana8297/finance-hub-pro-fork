@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { useAnomalyReviews, useReviewAnomaly, useBulkReviewAnomalies, useAnomalyReviewStats, AnomalyReview } from "@/hooks/useAnomalyReviews";
+import { useCompany } from "@/hooks/useCompany";
 
 const severityColors: Record<string, string> = {
   high: "bg-destructive text-destructive-foreground",
@@ -46,6 +47,7 @@ const anomalyTypeLabels: Record<string, string> = {
 export function AnomalyReviewManager() {
   const { data: reviews, isLoading } = useAnomalyReviews();
   const { data: stats } = useAnomalyReviewStats();
+  const { data: company } = useCompany();
   const reviewAnomaly = useReviewAnomaly();
   const bulkReview = useBulkReviewAnomalies();
 
@@ -103,7 +105,9 @@ export function AnomalyReviewManager() {
   };
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+    const currency = company?.currency || "INR";
+    const locale = currency === "INR" ? "en-IN" : "en-US";
+    return new Intl.NumberFormat(locale, { style: "currency", currency }).format(amount);
   };
 
   return (

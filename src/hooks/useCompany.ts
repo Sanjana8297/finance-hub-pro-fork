@@ -27,7 +27,7 @@ export function useCompany() {
         return null;
       }
 
-      // Get company data
+      // Get company data - always fetch fresh to get latest logo
       const { data, error } = await supabase
         .from("companies")
         .select("*")
@@ -88,16 +88,65 @@ export function useUploadCompanyLogo() {
         throw new Error('File size exceeds 5MB limit.');
       }
 
-      const fileExt = file.name.split(".").pop();
+      const fileExt = file.name.split(".").pop()?.toLowerCase();
       const fileName = `${companyId}/logo.${fileExt}`;
+      const timestamp = Date.now();
 
-      // Upload to company-assets storage bucket
+      console.log("Uploading logo:", { fileName, fileType: file.type, fileSize: file.size });
+
+      // Delete ALL existing logo files first to ensure clean state
+      try {
+        const { data: existingFiles, error: listError } = await supabase.storage
+          .from("company-assets")
+          .list(companyId);
+
+        if (!listError && existingFiles && existingFiles.length > 0) {
+          // Find all logo files (any extension or pattern)
+          const logoFiles = existingFiles.filter(f => 
+            f.name.toLowerCase().startsWith('logo')
+          );
+          
+          if (logoFiles.length > 0) {
+            const filesToDelete = logoFiles.map(f => `${companyId}/${f.name}`);
+            const { error: deleteError } = await supabase.storage
+              .from("company-assets")
+              .remove(filesToDelete);
+            
+            if (deleteError) {
+              console.warn("Error deleting old logo files:", deleteError);
+            } else {
+              console.log("Deleted old logo files:", filesToDelete);
+              // Small delay after deletion
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+          }
+        }
+      } catch (error) {
+        console.warn("Error listing/deleting old files:", error);
+        // Continue with upload even if deletion fails
+      }
+
+      // Upload new logo - upsert will replace if exists
       const { error: uploadError, data: uploadData } = await supabase.storage
         .from("company-assets")
         .upload(fileName, file, { 
-          upsert: true,
+          upsert: true, // Replace existing file
           contentType: file.type 
         });
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        // Provide more helpful error messages
+        if (uploadError.message.includes('Bucket not found') || uploadError.message.includes('does not exist')) {
+          throw new Error('Storage bucket not configured. Please contact your administrator to set up the company-assets bucket.');
+        }
+        if (uploadError.message.includes('new row violates row-level security policy')) {
+          throw new Error('You do not have permission to upload company logos. Admin or Finance Manager role required.');
+        }
+        throw uploadError;
+      }
+
+      console.log("Logo uploaded successfully:", uploadData);
 
       if (uploadError) {
         // Provide more helpful error messages
@@ -114,19 +163,54 @@ export function useUploadCompanyLogo() {
       const { data: { publicUrl } } = supabase.storage
         .from("company-assets")
         .getPublicUrl(fileName);
+      
+      console.log("Logo uploaded, public URL:", publicUrl);
 
-      // Update company with logo URL
-      const { error: updateError } = await supabase
+      // Store base URL without cache parameters (we'll add them when displaying)
+      const baseLogoUrl = publicUrl.split('?')[0];
+
+      // Update company with logo URL - store base URL, add timestamp for cache busting
+      const logoUrlWithTimestamp = `${baseLogoUrl}?v=${timestamp}`;
+      
+      const { error: updateError, data: updateData } = await supabase
         .from("companies")
-        .update({ logo_url: publicUrl })
-        .eq("id", companyId);
+        .update({ logo_url: baseLogoUrl }) // Store base URL in database
+        .eq("id", companyId)
+        .select();
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error("Error updating company logo_url:", updateError);
+        throw updateError;
+      }
 
-      return publicUrl;
+      console.log("Company logo_url updated successfully:", updateData);
+      console.log("Updated logo_url value in DB:", updateData?.[0]?.logo_url);
+
+      // Verify the update by fetching the company record immediately
+      const { data: verifyData, error: verifyError } = await supabase
+        .from("companies")
+        .select("logo_url")
+        .eq("id", companyId)
+        .single();
+
+      if (verifyError) {
+        console.error("Error verifying logo update:", verifyError);
+      } else {
+        console.log("Verified logo_url in database:", verifyData?.logo_url);
+        if (verifyData?.logo_url !== baseLogoUrl) {
+          console.warn("WARNING: Logo URL mismatch! Expected:", baseLogoUrl, "Got:", verifyData?.logo_url);
+        }
+      }
+
+      // Wait a bit longer to ensure database commit and replication
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      return baseLogoUrl;
     },
     onSuccess: () => {
+      // Invalidate and refetch company data to ensure latest logo is available
       queryClient.invalidateQueries({ queryKey: ["company"] });
+      queryClient.refetchQueries({ queryKey: ["company"] });
       toast({
         title: "Logo uploaded",
         description: "Company logo has been updated",

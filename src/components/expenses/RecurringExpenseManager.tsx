@@ -70,6 +70,7 @@ import {
   RecurringFrequency,
 } from "@/hooks/useRecurringExpenses";
 import { useExpenseCategories } from "@/hooks/useExpenses";
+import { useCompany } from "@/hooks/useCompany";
 
 const frequencyLabels: Record<RecurringFrequency, string> = {
   weekly: "Weekly",
@@ -80,6 +81,7 @@ const frequencyLabels: Record<RecurringFrequency, string> = {
 };
 
 export function RecurringExpenseManager() {
+  const { data: company } = useCompany();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<RecurringExpense | null>(null);
@@ -188,12 +190,15 @@ export function RecurringExpenseManager() {
     setDialogOpen(false);
   };
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", {
+  const formatCurrency = (value: number) => {
+    const currency = company?.currency || "INR";
+    const locale = currency === "INR" ? "en-IN" : "en-US";
+    return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: "USD",
+      currency,
       minimumFractionDigits: 0,
     }).format(value);
+  };
 
   const getDueStatus = (nextDue: string, isActive: boolean) => {
     if (!isActive) {

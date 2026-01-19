@@ -5,6 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -42,6 +49,7 @@ const Settings = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { profile, user } = useAuth();
   const { toast } = useToast();
+  const [logoVersion, setLogoVersion] = useState(0);
 
   const [profileData, setProfileData] = useState({
     fullName: "",
@@ -72,9 +80,11 @@ const Settings = () => {
     phone: "",
     address: "",
     website: "",
-    currency: "USD",
+    currency: "INR",
     timezone: "UTC",
   });
+
+  const prevLogoUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (company) {
@@ -85,9 +95,14 @@ const Settings = () => {
         phone: company.phone || "",
         address: company.address || "",
         website: company.website || "",
-        currency: company.currency || "USD",
+        currency: company.currency || "INR",
         timezone: company.timezone || "UTC",
       });
+      // Update logo version only when logo_url actually changes
+      if (company.logo_url && company.logo_url !== prevLogoUrlRef.current) {
+        setLogoVersion((prev) => prev + 1);
+        prevLogoUrlRef.current = company.logo_url;
+      }
     }
   }, [company]);
 
@@ -102,7 +117,19 @@ const Settings = () => {
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !company?.id) return;
-    uploadLogo.mutate({ companyId: company.id, file });
+    uploadLogo.mutate(
+      { companyId: company.id, file },
+      {
+        onSuccess: () => {
+          // Force logo refresh by updating version
+          setLogoVersion((prev) => prev + 1);
+          // Reset file input
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        },
+      }
+    );
   };
 
   const getInitials = (name: string) => {
@@ -407,9 +434,17 @@ const Settings = () => {
                   <div className="flex items-center gap-4">
                     {company?.logo_url ? (
                       <img
-                        src={company.logo_url}
+                        key={`${company.logo_url}-${logoVersion}`} // Force re-render when logo changes
+                        src={`${company.logo_url}?v=${logoVersion}&t=${Date.now()}`}
                         alt="Company logo"
                         className="h-20 w-20 rounded-xl object-cover"
+                        onError={(e) => {
+                          // If image fails to load, try without cache busting
+                          const target = e.target as HTMLImageElement;
+                          if (target.src.includes('?v=')) {
+                            target.src = company.logo_url || '';
+                          }
+                        }}
                       />
                     ) : (
                       <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-primary/10 text-2xl font-bold text-primary">
@@ -572,13 +607,28 @@ const Settings = () => {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="currency">Currency</Label>
-                  <Input
-                    id="currency"
+                  <Select
                     value={formData.currency}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, currency: e.target.value }))
+                    onValueChange={(value) =>
+                      setFormData((prev) => ({ ...prev, currency: value }))
                     }
-                  />
+                  >
+                    <SelectTrigger id="currency">
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="INR">INR - Indian Rupee (₹)</SelectItem>
+                      <SelectItem value="USD">USD - US Dollar ($)</SelectItem>
+                      <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
+                      <SelectItem value="GBP">GBP - British Pound (£)</SelectItem>
+                      <SelectItem value="JPY">JPY - Japanese Yen (¥)</SelectItem>
+                      <SelectItem value="AUD">AUD - Australian Dollar (A$)</SelectItem>
+                      <SelectItem value="CAD">CAD - Canadian Dollar (C$)</SelectItem>
+                      <SelectItem value="SGD">SGD - Singapore Dollar (S$)</SelectItem>
+                      <SelectItem value="AED">AED - UAE Dirham (د.إ)</SelectItem>
+                      <SelectItem value="SAR">SAR - Saudi Riyal (﷼)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
