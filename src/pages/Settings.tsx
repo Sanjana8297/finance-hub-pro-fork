@@ -705,106 +705,6 @@ const Settings = () => {
             </CardContent>
           </Card>
 
-          {/* Email Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="h-5 w-5" />
-                Email Settings
-              </CardTitle>
-              <CardDescription>
-                Configure email sender information and Resend API settings
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="emailSenderName">Sender Name</Label>
-                  <Input
-                    id="emailSenderName"
-                    value={formData.email_sender_name}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, email_sender_name: e.target.value }))
-                    }
-                    placeholder="FinanceHub"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="emailReplyTo">Reply-To Email</Label>
-                  <Input
-                    id="emailReplyTo"
-                    type="email"
-                    value={formData.email_reply_to}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, email_reply_to: e.target.value }))
-                    }
-                    placeholder="support@financehub.com"
-                  />
-                </div>
-              </div>
-              
-              <Separator />
-              
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Resend API Configuration</h3>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="resendApiKey">Resend API Key</Label>
-                    <Input
-                      id="resendApiKey"
-                      type="password"
-                      value={formData.resend_api_key}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, resend_api_key: e.target.value }))
-                      }
-                      placeholder="re_xxxxxxxxxxxxx"
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      Get your API key from{" "}
-                      <a 
-                        href="https://resend.com/api-keys" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        resend.com/api-keys
-                      </a>
-                    </p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
-                    <p className="text-sm font-medium">Email Sending Domain</p>
-                    <p className="text-sm text-muted-foreground">
-                      Make sure you have verified your domain in Resend. The "from" email must use a verified domain.
-                      You can verify domains at{" "}
-                      <a 
-                        href="https://resend.com/domains" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        resend.com/domains
-                      </a>
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleSaveCompanyProfile}
-                  disabled={updateCompany.isPending}
-                >
-                  {updateCompany.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="mr-2 h-4 w-4" />
-                  )}
-                  Save Email Settings
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Localization */}
           <Card>
             <CardHeader>
@@ -959,19 +859,96 @@ const Settings = () => {
                 <Mail className="h-5 w-5" />
                 Email Settings
               </CardTitle>
+              <CardDescription>
+                Configure email sender information and Resend API settings
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="senderName">Sender Name</Label>
-                <Input id="senderName" defaultValue={formData.name || "FinanceHub"} />
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="emailSenderName">Sender Name</Label>
+                  <Input
+                    id="emailSenderName"
+                    value={formData.email_sender_name}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, email_sender_name: e.target.value }))
+                    }
+                    placeholder="FinanceHub"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="emailReplyTo">Reply-To Email</Label>
+                  <Input
+                    id="emailReplyTo"
+                    type="email"
+                    value={formData.email_reply_to}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, email_reply_to: e.target.value }))
+                    }
+                    placeholder="support@financehub.com"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="replyTo">Reply-To Email</Label>
-                <Input id="replyTo" defaultValue={formData.email || "support@financehub.com"} />
+              
+              <Separator />
+              
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Resend API Configuration</h3>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="resendApiKey">Resend API Key</Label>
+                    <Input
+                      id="resendApiKey"
+                      type="password"
+                      value={formData.resend_api_key}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, resend_api_key: e.target.value }))
+                      }
+                      placeholder="re_xxxxxxxxxxxxx"
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Get your API key from{" "}
+                      <a 
+                        href="https://resend.com/api-keys" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        resend.com/api-keys
+                      </a>
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
+                    <p className="text-sm font-medium">Email Sending Domain</p>
+                    <p className="text-sm text-muted-foreground">
+                      Make sure you have verified your domain in Resend. The "from" email must use a verified domain.
+                      You can verify domains at{" "}
+                      <a 
+                        href="https://resend.com/domains" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        resend.com/domains
+                      </a>
+                    </p>
+                  </div>
+                </div>
               </div>
-              <Button variant="outline" className="w-full">
-                Configure SMTP
-              </Button>
+              
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleSaveCompanyProfile}
+                  disabled={updateCompany.isPending}
+                >
+                  {updateCompany.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Save Email Settings
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
