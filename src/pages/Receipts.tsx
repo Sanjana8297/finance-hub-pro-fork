@@ -22,6 +22,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -93,6 +100,8 @@ const Receipts = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [verifyReceipt, setVerifyReceipt] = useState<Receipt | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   const { roles } = useAuth();
   const { data: receipts, isLoading } = useReceipts();
@@ -106,12 +115,20 @@ const Receipts = () => {
     ["super_admin", "admin", "finance_manager", "accountant"].includes(r)
   );
 
-  const filteredReceipts = receipts?.filter(
-    (r) =>
+  // Get unique categories
+  const uniqueCategories = [...new Set(receipts?.map((r) => r.category).filter(Boolean) || [])];
+
+  const filteredReceipts = receipts?.filter((r) => {
+    const matchesSearch =
       r.receipt_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
       r.vendor.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (r.category?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
-  );
+      (r.category?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
+
+    const matchesStatus = statusFilter === "all" || r.status === statusFilter;
+    const matchesCategory = categoryFilter === "all" || r.category === categoryFilter;
+
+    return matchesSearch && matchesStatus && matchesCategory;
+  });
 
   const handleDelete = async () => {
     if (deleteId) {
@@ -215,16 +232,30 @@ const Receipts = () => {
             />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 h-4 w-4" />
-              Filter
-            </Button>
-            <Button variant="outline" size="sm">
-              All Status
-            </Button>
-            <Button variant="outline" size="sm">
-              All Categories
-            </Button>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="verified">Verified</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {uniqueCategories.map((cat) => (
+                  <SelectItem key={cat} value={cat}>
+                    {cat}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>

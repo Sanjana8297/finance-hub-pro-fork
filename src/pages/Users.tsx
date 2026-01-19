@@ -18,6 +18,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Plus,
@@ -138,13 +145,16 @@ const Users = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [rolesDialogOpen, setRolesDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserWithRoles | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: usersData, isLoading } = useUsers();
 
   // Use data from API if available, otherwise use mock data
   const allUsers: (UserWithRoles | User)[] = usersData || users;
 
   // Map database users to display format
-  const displayUsers = allUsers.map((user) => {
+  const mappedUsers = allUsers.map((user) => {
     if ("full_name" in user) {
       // Database user
       return {
@@ -159,6 +169,23 @@ const Users = () => {
       };
     }
     return user;
+  });
+
+  // Get unique roles
+  const uniqueRoles = [...new Set(mappedUsers.flatMap((u) => u.roles))];
+
+  // Filter users based on search query and filters
+  const displayUsers = mappedUsers.filter((user) => {
+    const matchesSearch =
+      !searchQuery ||
+      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.roles.some((role) => role.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const matchesRole = roleFilter === "all" || user.roles.includes(roleFilter);
+    const matchesStatus = statusFilter === "all" || user.status === statusFilter;
+
+    return matchesSearch && matchesRole && matchesStatus;
   });
 
   const activeUsers = displayUsers.filter((u) => u.status === "active").length;
@@ -280,19 +307,37 @@ const Users = () => {
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search users..." className="pl-10" />
+            <Input 
+              placeholder="Search users..." 
+              className="pl-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 h-4 w-4" />
-              Filter
-            </Button>
-            <Button variant="outline" size="sm">
-              All Roles
-            </Button>
-            <Button variant="outline" size="sm">
-              All Status
-            </Button>
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger className="w-full sm:w-[160px]">
+                <SelectValue placeholder="Role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Roles</SelectItem>
+                {uniqueRoles.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    {roleLabels[role] || role}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>

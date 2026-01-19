@@ -18,6 +18,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Calendar,
@@ -134,8 +141,24 @@ const Payroll = () => {
   const [isPayslipDialogOpen, setIsPayslipDialogOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const { toast } = useToast();
   const { data: company } = useCompany();
+
+  // Filter payslips based on search query and status filter
+  const filteredPayslips = payslips.filter((payslip) => {
+    const matchesSearch =
+      !searchQuery ||
+      payslip.employee.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      payslip.employee.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      payslip.period.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      payslip.status.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesStatus = statusFilter === "all" || payslip.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
 
   const totalPayroll = payslips.reduce((sum, p) => sum + p.netPay, 0);
   const paidAmount = payslips
@@ -293,16 +316,24 @@ const Payroll = () => {
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search employees..." className="pl-10" />
+            <Input 
+              placeholder="Search employees..." 
+              className="pl-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 h-4 w-4" />
-              Filter
-            </Button>
-            <Button variant="outline" size="sm">
-              All Status
-            </Button>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -325,7 +356,7 @@ const Payroll = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {payslips.map((payslip) => {
+              {filteredPayslips.map((payslip) => {
                 const status = statusConfig[payslip.status];
                 const StatusIcon = status.icon;
                 return (

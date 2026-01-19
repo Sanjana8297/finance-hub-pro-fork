@@ -1,4 +1,12 @@
+import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -114,6 +122,31 @@ const actionConfig = {
 };
 
 const AuditLogs = () => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [actionTypeFilter, setActionTypeFilter] = useState<string>("all");
+  const [userFilter, setUserFilter] = useState<string>("all");
+
+  // Get unique users
+  const uniqueUsers = [...new Set(auditLogs.map((log) => log.user.name))];
+
+  // Filter audit logs based on search query and filters
+  const filteredLogs = auditLogs.filter((log) => {
+    const matchesSearch =
+      !searchQuery ||
+      log.user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.actionType.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.tableName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.recordId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.ipAddress?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesActionType = actionTypeFilter === "all" || log.actionType === actionTypeFilter;
+    const matchesUser = userFilter === "all" || log.user.name === userFilter;
+
+    return matchesSearch && matchesActionType && matchesUser;
+  });
+
   return (
     <DashboardLayout>
       {/* Page Header */}
@@ -157,22 +190,41 @@ const AuditLogs = () => {
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search logs..." className="pl-10" />
+            <Input 
+              placeholder="Search logs..." 
+              className="pl-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 h-4 w-4" />
-              Filter
-            </Button>
-            <Button variant="outline" size="sm">
-              All Actions
-            </Button>
-            <Button variant="outline" size="sm">
-              All Users
-            </Button>
-            <Button variant="outline" size="sm">
-              Last 7 Days
-            </Button>
+            <Select value={actionTypeFilter} onValueChange={setActionTypeFilter}>
+              <SelectTrigger className="w-full sm:w-[160px]">
+                <SelectValue placeholder="Action Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Actions</SelectItem>
+                <SelectItem value="login">Login</SelectItem>
+                <SelectItem value="logout">Logout</SelectItem>
+                <SelectItem value="create">Create</SelectItem>
+                <SelectItem value="update">Update</SelectItem>
+                <SelectItem value="delete">Delete</SelectItem>
+                <SelectItem value="approve">Approve</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={userFilter} onValueChange={setUserFilter}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="User" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Users</SelectItem>
+                {uniqueUsers.map((user) => (
+                  <SelectItem key={user} value={user}>
+                    {user}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -193,7 +245,7 @@ const AuditLogs = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {auditLogs.map((log) => {
+              {filteredLogs.map((log) => {
                 const config = actionConfig[log.actionType];
                 const Icon = config.icon;
                 return (

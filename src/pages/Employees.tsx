@@ -18,6 +18,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Plus,
@@ -148,17 +155,43 @@ const statusConfig = {
 const Employees = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: employeesData, isLoading } = useEmployees();
   const deleteEmployee = useDeleteEmployee();
 
   // Use data from API if available, otherwise use mock data
   // Convert mock data to match Employee type if needed
-  const employees: (Employee | MockEmployee)[] = employeesData !== undefined ? (employeesData || []) : (mockEmployees as any);
+  const allEmployees: (Employee | MockEmployee)[] = employeesData !== undefined ? (employeesData || []) : (mockEmployees as any);
   
-  const totalEmployees = employees.length;
-  const activeCount = employees.filter((e) => e.status === "active").length;
-  const onLeaveCount = employees.filter((e) => e.status === "on-leave").length;
-  const totalPayroll = employees.reduce((sum, e) => sum + (Number(e.salary) || 0), 0);
+  // Get unique departments
+  const uniqueDepartments = [...new Set(allEmployees.map((e) => e.department).filter(Boolean))];
+
+  // Filter employees based on search query and filters
+  const employees = allEmployees.filter((employee) => {
+    const employeeName = (employee as any).name || employee.full_name || "Unknown";
+    const employeeEmail = employee.email || "";
+    const employeeDepartment = employee.department || "";
+    const employeePosition = employee.position || "";
+    
+    const matchesSearch =
+      !searchQuery ||
+      employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employeeEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employeeDepartment.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employeePosition.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesDepartment = departmentFilter === "all" || employee.department === departmentFilter;
+    const matchesStatus = statusFilter === "all" || employee.status === statusFilter;
+
+    return matchesSearch && matchesDepartment && matchesStatus;
+  });
+  
+  const totalEmployees = allEmployees.length;
+  const activeCount = allEmployees.filter((e) => e.status === "active").length;
+  const onLeaveCount = allEmployees.filter((e) => e.status === "on-leave").length;
+  const totalPayroll = allEmployees.reduce((sum, e) => sum + (Number(e.salary) || 0), 0);
 
   const handleAddEmployee = () => {
     setSelectedEmployee(null);
@@ -221,19 +254,38 @@ const Employees = () => {
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search employees..." className="pl-10" />
+            <Input 
+              placeholder="Search employees..." 
+              className="pl-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 h-4 w-4" />
-              Filter
-            </Button>
-            <Button variant="outline" size="sm">
-              All Departments
-            </Button>
-            <Button variant="outline" size="sm">
-              All Status
-            </Button>
+            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="Department" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                {uniqueDepartments.map((dept) => (
+                  <SelectItem key={dept} value={dept}>
+                    {dept}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="on-leave">On Leave</SelectItem>
+                <SelectItem value="terminated">Terminated</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
