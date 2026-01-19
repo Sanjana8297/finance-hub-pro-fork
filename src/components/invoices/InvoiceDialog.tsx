@@ -27,6 +27,8 @@ import {
   useInvoiceItems,
   generateInvoiceNumber,
 } from "@/hooks/useInvoices";
+import { useCompany } from "@/hooks/useCompany";
+import { formatCurrency } from "@/lib/utils";
 
 interface InvoiceDialogProps {
   invoice?: Invoice | null;
@@ -51,6 +53,8 @@ export function InvoiceDialog({
   const createInvoice = useCreateInvoice();
   const updateInvoice = useUpdateInvoice();
   const { data: existingItems } = useInvoiceItems(invoice?.id);
+  const { data: company } = useCompany();
+  const currency = company?.currency || "INR";
 
   const [formData, setFormData] = useState({
     invoice_number: "",
@@ -353,7 +357,7 @@ export function InvoiceDialog({
                   <div className="sm:col-span-2">
                     <Label className="text-xs">Amount</Label>
                     <Input
-                      value={`$${item.amount.toFixed(2)}`}
+                      value={formatCurrency(item.amount, currency)}
                       readOnly
                       className="bg-muted"
                     />
@@ -379,7 +383,7 @@ export function InvoiceDialog({
             <div className="w-full space-y-2 sm:w-64">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>{formatCurrency(subtotal, currency)}</span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm text-muted-foreground">Tax (%)</span>
@@ -397,11 +401,11 @@ export function InvoiceDialog({
                   }
                   className="w-20 text-right"
                 />
-                <span className="w-20 text-right text-sm">${taxAmount.toFixed(2)}</span>
+                <span className="w-20 text-right text-sm">{formatCurrency(taxAmount, currency)}</span>
               </div>
               <div className="flex justify-between border-t pt-2 text-base font-semibold">
                 <span>Total</span>
-                <span>${total.toFixed(2)}</span>
+                <span>{formatCurrency(total, currency)}</span>
               </div>
             </div>
           </div>
