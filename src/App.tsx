@@ -7,6 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { NotificationListener } from "@/components/notifications/NotificationListener";
 import Dashboard from "./pages/Dashboard";
+import Quotations from "./pages/Quotations";
 import Receipts from "./pages/Receipts";
 import Invoices from "./pages/Invoices";
 import Expenses from "./pages/Expenses";
@@ -37,6 +38,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/quotations"
+              element={
+                <ProtectedRoute requiredRoles={["super_admin", "admin", "finance_manager", "accountant"]}>
+                  <Quotations />
                 </ProtectedRoute>
               }
             />

@@ -19,7 +19,8 @@ import {
   Building2,
   Wallet,
   Menu,
-  X
+  X,
+  FileCheck
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { label: "Quotations", href: "/quotations", icon: FileCheck },
   { label: "Receipts", href: "/receipts", icon: Receipt, badge: 12 },
   { label: "Invoices", href: "/invoices", icon: FileText, badge: 5 },
   { label: "Expenses", href: "/expenses", icon: CreditCard },
