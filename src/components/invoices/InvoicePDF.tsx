@@ -27,12 +27,12 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     marginBottom: 12,
+    width: 120,
+    height: 60,
   },
   logo: {
-    width: 100,
-    height: 50,
-    maxWidth: 100,
-    maxHeight: 50,
+    width: 120,
+    height: 60,
   },
   companyName: {
     fontSize: 20,

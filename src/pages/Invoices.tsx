@@ -156,14 +156,18 @@ const Invoices = () => {
       // Get logo URL - clean it and ensure it's valid
       let logoUrl = companyData?.logo_url;
       if (logoUrl) {
-        // Remove any existing query parameters
-        logoUrl = logoUrl.split('?')[0];
+        // Remove any existing query parameters first
+        const baseUrl = logoUrl.split('?')[0];
         // Ensure it's a valid URL
-        if (!logoUrl.startsWith('http://') && !logoUrl.startsWith('https://')) {
-          console.warn("Invalid logo URL format:", logoUrl);
+        if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+          console.warn("Invalid logo URL format:", baseUrl);
           logoUrl = undefined;
         } else {
-          console.log("Using logo URL for PDF:", logoUrl);
+          // Add cache-busting timestamp to force fresh logo fetch
+          // This ensures we get the latest logo even if browser/CDN cached the old one
+          logoUrl = `${baseUrl}?v=${Date.now()}&t=${Date.now()}`;
+          console.log("Using logo URL for PDF (with cache-busting):", logoUrl);
+          console.log("Company logo_url from DB:", companyData?.logo_url);
         }
       } else {
         console.log("No logo URL found in company data");
