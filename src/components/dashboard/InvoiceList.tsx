@@ -10,6 +10,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useRecentInvoices } from "@/hooks/useDashboardStats";
+import { useCompany } from "@/hooks/useCompany";
+import { formatCurrency } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 
@@ -33,6 +35,8 @@ const statusLabels: Record<InvoiceStatus, string> = {
 
 export function InvoiceList() {
   const { data: invoices, isLoading } = useRecentInvoices();
+  const { data: company } = useCompany();
+  const currency = company?.currency || "INR";
 
   if (isLoading) {
     return (
@@ -91,7 +95,7 @@ export function InvoiceList() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
-                      <p className="font-semibold">${invoice.amount.toLocaleString()}</p>
+                      <p className="font-semibold">{formatCurrency(invoice.amount, currency)}</p>
                       <p className="text-xs text-muted-foreground">
                         Due {format(new Date(invoice.dueDate), "MMM d, yyyy")}
                       </p>

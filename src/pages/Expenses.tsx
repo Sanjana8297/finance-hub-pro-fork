@@ -64,6 +64,8 @@ import {
 } from "@/hooks/useExpenses";
 import { useHasDelegatedAuthority } from "@/hooks/useExpenseDelegations";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/hooks/useCompany";
+import { formatCurrency } from "@/lib/utils";
 
 const statusConfig = {
   approved: {
@@ -231,7 +233,7 @@ const Expenses = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold">
-              ${stats?.totalAmount?.toLocaleString() || 0}
+              {formatCurrency(stats?.totalAmount || 0, currency, { compact: true })}
             </p>
           )}
         </Card>
@@ -241,7 +243,7 @@ const Expenses = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold text-success">
-              ${stats?.approvedAmount?.toLocaleString() || 0}
+              {formatCurrency(stats?.approvedAmount || 0, currency, { compact: true })}
             </p>
           )}
         </Card>
@@ -251,7 +253,7 @@ const Expenses = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold text-warning">
-              ${stats?.pendingAmount?.toLocaleString() || 0}
+              {formatCurrency(stats?.pendingAmount || 0, currency, { compact: true })}
             </p>
           )}
         </Card>
@@ -384,7 +386,7 @@ const Expenses = () => {
                         </div>
                       </TableCell>
                       <TableCell className="font-semibold">
-                        ${Number(expense.amount).toLocaleString()}
+                        {formatCurrency(Number(expense.amount), currency)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {format(new Date(expense.expense_date), "MMM d, yyyy")}

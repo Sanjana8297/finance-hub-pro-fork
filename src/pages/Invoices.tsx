@@ -62,6 +62,7 @@ import {
 import { useCompany } from "@/hooks/useCompany";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/utils";
 
 const statusConfig = {
   paid: {
@@ -101,6 +102,7 @@ const Invoices = () => {
   const { data: invoices, isLoading } = useInvoices();
   const { data: stats, isLoading: statsLoading } = useInvoiceStats();
   const { data: company } = useCompany();
+  const currency = company?.currency || "INR";
   const deleteInvoice = useDeleteInvoice();
   const markPaid = useMarkInvoicePaid();
   const sendInvoice = useSendInvoice();
@@ -302,7 +304,7 @@ const Invoices = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold">
-              ${stats?.totalRevenue?.toLocaleString() || 0}
+              {formatCurrency(stats?.totalRevenue || 0, currency, { compact: true })}
             </p>
           )}
         </Card>
@@ -312,7 +314,7 @@ const Invoices = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold text-success">
-              ${stats?.paidAmount?.toLocaleString() || 0}
+              {formatCurrency(stats?.paidAmount || 0, currency, { compact: true })}
             </p>
           )}
         </Card>
@@ -322,7 +324,7 @@ const Invoices = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold text-info">
-              ${stats?.pendingAmount?.toLocaleString() || 0}
+              {formatCurrency(stats?.pendingAmount || 0, currency, { compact: true })}
             </p>
           )}
         </Card>
@@ -332,7 +334,7 @@ const Invoices = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold text-destructive">
-              ${stats?.overdueAmount?.toLocaleString() || 0}
+              {formatCurrency(stats?.overdueAmount || 0, currency, { compact: true })}
             </p>
           )}
         </Card>
@@ -453,13 +455,13 @@ const Invoices = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        ${Number(invoice.subtotal).toLocaleString()}
+                        {formatCurrency(Number(invoice.subtotal), currency)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        ${Number(invoice.tax_amount || 0).toLocaleString()}
+                        {formatCurrency(Number(invoice.tax_amount || 0), currency)}
                       </TableCell>
                       <TableCell className="font-semibold">
-                        ${Number(invoice.total).toLocaleString()}
+                        {formatCurrency(Number(invoice.total), currency)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {format(new Date(invoice.issue_date), "MMM d, yyyy")}

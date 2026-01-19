@@ -18,21 +18,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/hooks/useCompany";
+import { formatCurrency } from "@/lib/utils";
 import { Link } from "react-router-dom";
 
 const Dashboard = () => {
   const { profile } = useAuth();
   const { data: stats, isLoading } = useDashboardStats();
+  const { data: company } = useCompany();
 
-  const formatCurrency = (value: number) => {
-    if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(1)}M`;
-    }
-    if (value >= 1000) {
-      return `$${(value / 1000).toFixed(1)}K`;
-    }
-    return `$${value.toLocaleString()}`;
-  };
+  const currency = company?.currency || "INR";
 
   const formatChange = (value: number, isExpense = false) => {
     const sign = value >= 0 ? "+" : "";
@@ -79,7 +74,7 @@ const Dashboard = () => {
             <div className="animate-slide-up opacity-0 stagger-1">
               <StatCard
                 title="Total Receipts"
-                value={formatCurrency(stats?.totalReceipts || 0)}
+                value={formatCurrency(stats?.totalReceipts || 0, currency, { compact: true })}
                 change={formatChange(stats?.receiptsChange || 0)}
                 changeType={stats?.receiptsChange && stats.receiptsChange >= 0 ? "positive" : "negative"}
                 icon={Receipt}
@@ -89,7 +84,7 @@ const Dashboard = () => {
             <div className="animate-slide-up opacity-0 stagger-2">
               <StatCard
                 title="Total Expenses"
-                value={formatCurrency(stats?.totalExpenses || 0)}
+                value={formatCurrency(stats?.totalExpenses || 0, currency, { compact: true })}
                 change={formatChange(stats?.expensesChange || 0, true)}
                 changeType={stats?.expensesChange && stats.expensesChange > 0 ? "negative" : "positive"}
                 icon={CreditCard}
@@ -99,7 +94,7 @@ const Dashboard = () => {
             <div className="animate-slide-up opacity-0 stagger-3">
               <StatCard
                 title="Pending Invoices"
-                value={formatCurrency(stats?.pendingInvoices || 0)}
+                value={formatCurrency(stats?.pendingInvoices || 0, currency, { compact: true })}
                 change={`${stats?.pendingInvoicesCount || 0} invoices pending`}
                 changeType="neutral"
                 icon={FileText}
@@ -109,7 +104,7 @@ const Dashboard = () => {
             <div className="animate-slide-up opacity-0 stagger-4">
               <StatCard
                 title="Monthly Profit"
-                value={formatCurrency(stats?.monthlyProfit || 0)}
+                value={formatCurrency(stats?.monthlyProfit || 0, currency, { compact: true })}
                 change={formatChange(stats?.profitChange || 0)}
                 changeType={stats?.monthlyProfit && stats.monthlyProfit >= 0 ? "positive" : "negative"}
                 icon={TrendingUp}
@@ -131,7 +126,7 @@ const Dashboard = () => {
               <div className="flex-1">
                 <p className="font-medium">{stats.overdueInvoices.count} invoice{stats.overdueInvoices.count > 1 ? 's are' : ' is'} overdue</p>
                 <p className="text-sm text-muted-foreground">
-                  Total outstanding: {formatCurrency(stats.overdueInvoices.total)}. Send payment reminders to avoid delays.
+                  Total outstanding: {formatCurrency(stats.overdueInvoices.total, currency, { compact: true })}. Send payment reminders to avoid delays.
                 </p>
               </div>
               <Button variant="warning" size="sm" asChild>

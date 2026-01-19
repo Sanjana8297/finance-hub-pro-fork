@@ -7,6 +7,8 @@ import {
   CreditCard,
 } from "lucide-react";
 import { useRecentActivity } from "@/hooks/useDashboardStats";
+import { useCompany } from "@/hooks/useCompany";
+import { formatCurrency } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
 const iconMap = {
@@ -33,6 +35,8 @@ const statusBadgeVariant: Record<string, "success" | "warning" | "destructive" |
 
 export function RecentActivity() {
   const { data: activities, isLoading } = useRecentActivity();
+  const { data: company } = useCompany();
+  const currency = company?.currency || "INR";
 
   if (isLoading) {
     return (
@@ -84,7 +88,7 @@ export function RecentActivity() {
                     <p className="text-sm font-medium leading-none">{activity.description}</p>
                     <div className="flex items-center gap-2">
                       <p className="text-sm text-muted-foreground">
-                        ${activity.amount.toLocaleString()}
+                        {formatCurrency(activity.amount, currency)}
                       </p>
                       <Badge variant={statusBadgeVariant[activity.status] || "muted"} className="text-xs">
                         {activity.status}

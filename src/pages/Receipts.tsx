@@ -66,6 +66,8 @@ import { ReceiptForm } from "@/components/receipts/ReceiptForm";
 import { VerifyReceiptDialog } from "@/components/receipts/VerifyReceiptDialog";
 import { useReceipts, useReceiptStats, useDeleteReceipt, Receipt } from "@/hooks/useReceipts";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/hooks/useCompany";
+import { formatCurrency } from "@/lib/utils";
 
 const statusConfig: Record<string, { variant: "success" | "warning" | "destructive"; icon: typeof CheckCircle; label: string }> = {
   verified: {
@@ -95,6 +97,8 @@ const Receipts = () => {
   const { roles } = useAuth();
   const { data: receipts, isLoading } = useReceipts();
   const { data: stats } = useReceiptStats();
+  const { data: company } = useCompany();
+  const currency = company?.currency || "INR";
   const deleteReceipt = useDeleteReceipt();
 
   // Check if user has finance access for verification
@@ -193,7 +197,7 @@ const Receipts = () => {
         <Card variant="stat" className="p-4">
           <p className="text-sm text-muted-foreground">Total Value</p>
           <p className="text-2xl font-bold">
-            ${stats?.totalValue.toLocaleString() ?? "—"}
+            {stats?.totalValue ? formatCurrency(stats.totalValue, currency, { compact: true }) : "—"}
           </p>
         </Card>
       </div>
@@ -288,7 +292,7 @@ const Receipts = () => {
                         )}
                       </TableCell>
                       <TableCell className="font-semibold">
-                        ${Number(receipt.amount).toLocaleString()}
+                        {formatCurrency(Number(receipt.amount), currency)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {format(new Date(receipt.receipt_date), "MMM d, yyyy")}

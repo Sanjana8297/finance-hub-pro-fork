@@ -8,9 +8,13 @@ import {
   Tooltip,
 } from "recharts";
 import { useExpenseBreakdown } from "@/hooks/useDashboardStats";
+import { useCompany } from "@/hooks/useCompany";
+import { formatCurrency } from "@/lib/utils";
 
 export function ExpenseBreakdown() {
   const { data, isLoading } = useExpenseBreakdown();
+  const { data: company } = useCompany();
+  const currency = company?.currency || "INR";
 
   if (isLoading) {
     return (
@@ -64,7 +68,7 @@ export function ExpenseBreakdown() {
                     borderRadius: '12px',
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                   }}
-                  formatter={(value: number) => [`$${value.toLocaleString()}`, '']}
+                  formatter={(value: number) => [formatCurrency(value, currency), '']}
                 />
               </PieChart>
             </ResponsiveContainer>

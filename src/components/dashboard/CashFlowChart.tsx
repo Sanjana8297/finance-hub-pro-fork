@@ -10,9 +10,14 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useCashFlowData } from "@/hooks/useDashboardStats";
+import { useCompany } from "@/hooks/useCompany";
+import { formatCurrency, getCurrencySymbol } from "@/lib/utils";
 
 export function CashFlowChart() {
   const { data, isLoading } = useCashFlowData();
+  const { data: company } = useCompany();
+  const currency = company?.currency || "INR";
+  const currencySymbol = getCurrencySymbol(currency);
 
   if (isLoading) {
     return (
@@ -85,7 +90,7 @@ export function CashFlowChart() {
                   tickLine={false}
                   className="text-xs"
                   tick={{ fill: 'hsl(220, 10%, 45%)' }}
-                  tickFormatter={(value) => `$${value / 1000}k`}
+                  tickFormatter={(value) => `${currencySymbol}${value / 1000}k`}
                 />
                 <Tooltip
                   contentStyle={{
@@ -94,7 +99,7 @@ export function CashFlowChart() {
                     borderRadius: '12px',
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                   }}
-                  formatter={(value: number) => [`$${value.toLocaleString()}`, '']}
+                  formatter={(value: number) => [formatCurrency(value, currency), '']}
                   labelStyle={{ color: 'hsl(241, 44%, 15%)' }}
                 />
                 <Area
