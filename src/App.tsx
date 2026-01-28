@@ -21,6 +21,7 @@ import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import Viewstatement from "./Viewstatement";
 
 const queryClient = new QueryClient();
 
@@ -50,6 +51,14 @@ const App = () => (
                 </ProtectedRoute>
               }
             /> */}
+            <Route
+            path='/view-statement',
+            element={
+              <ProtectedRoute >
+                <Viewstatement />
+              </ProtectedRoute>
+            }
+            />
             <Route
               path="/receipts"
               element={
