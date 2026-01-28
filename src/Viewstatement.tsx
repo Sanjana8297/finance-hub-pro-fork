@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase'; // Adjust path if needed
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'; // Adjust imports
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
 import { Button } from './components/ui/button';
 import { Download, ArrowLeft, Eye, X, AlertCircle } from 'lucide-react';
-import { formatCurrency } from '../utils/format'; // Adjust path
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 
@@ -53,6 +52,14 @@ const Viewstatement: React.FC = () => {
   const isExcelFile = (fileName: string) => {
     const ext = getFileExtension(fileName);
     return ['xlsx', 'xls', 'csv'].includes(ext);
+  };
+
+  const formatCurrency = (amount: number | null, currency: string = 'INR') => {
+    if (amount === null || amount === undefined) return '—';
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: currency || 'INR',
+    }).format(amount);
   };
 
   const extractBalanceFromSummary = (data: any[][], headerRowIndex: number, summaryInfo: any) => {
@@ -301,15 +308,15 @@ const Viewstatement: React.FC = () => {
       if (!id) return;
       setLoading(true);
       const { data, error } = await supabase
-        .from('bank_statements')
+        .from('bank_statements' as any)
         .select('*')
         .eq('id', id)
-        .single();
+        .single() as { data: BankStatement | null; error: any };
 
       if (error) {
         setError(error.message);
       } else {
-        setStatement(data);
+        setStatement(data as BankStatement | null);
       }
       setLoading(false);
     };

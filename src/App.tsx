@@ -52,7 +52,7 @@ const App = () => (
               }
             /> */}
             <Route
-            path='/view-statement',
+            path='/view-statement'
             element={
               <ProtectedRoute >
                 <Viewstatement />
