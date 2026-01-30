@@ -19,11 +19,19 @@ import {
   ArrowLeft,
   Loader2,
   AlertCircle,
+  Upload,
+  Link as LinkIcon,
+  X,
+  File,
 } from "lucide-react";
 import { format } from "date-fns";
-import { useBankStatements, useBankStatementTransactions } from "@/hooks/useStatements";
+import { useBankStatements, useBankStatementTransactions, useUpdateBankStatementTransaction } from "@/hooks/useStatements";
 import { useCompany } from "@/hooks/useCompany";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import * as XLSX from "xlsx";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/hooks/use-toast";
 
 const Transactions = () => {
   const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
@@ -32,9 +40,86 @@ const Transactions = () => {
   const [headerRowIndex, setHeaderRowIndex] = useState<number>(-1);
   const [transactionStartRow, setTransactionStartRow] = useState<number>(-1);
   const [loadingExcel, setLoadingExcel] = useState(false);
+  const [proofValues, setProofValues] = useState<Record<string, string>>({});
+  const [uploadingProofs, setUploadingProofs] = useState<Record<string, boolean>>({});
   const { data: statements, isLoading } = useBankStatements();
   const { data: transactions, isLoading: transactionsLoading } = useBankStatementTransactions(selectedStatementId);
   const { data: company } = useCompany();
+  const { user } = useAuth();
+  const updateTransaction = useUpdateBankStatementTransaction();
+
+  // Handle file upload for proof
+  const handleProofFileUpload = async (transactionId: string, file: File) => {
+    if (!user) {
+      toast({
+        title: "Not authenticated",
+        description: "Please log in to upload files",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setUploadingProofs(prev => ({ ...prev, [transactionId]: true }));
+
+    try {
+      const fileExt = file.name.split(".").pop();
+      const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = `${user.id}/transaction-proofs/${transactionId}/${Date.now()}_${sanitizedFileName}`;
+
+      // Determine content type
+      let contentType = file.type || 'application/octet-stream';
+      if (fileExt === 'pdf') {
+        contentType = 'application/pdf';
+      } else if (['jpg', 'jpeg'].includes(fileExt || '')) {
+        contentType = 'image/jpeg';
+      } else if (fileExt === 'png') {
+        contentType = 'image/png';
+      }
+
+      const { error: uploadError } = await supabase.storage
+        .from("receipts")
+        .upload(filePath, file, {
+          contentType: contentType,
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from("receipts")
+        .getPublicUrl(filePath);
+
+      if (!urlData?.publicUrl) {
+        throw new Error('Failed to get file URL after upload');
+      }
+
+      // Update proof value with the uploaded file URL
+      setProofValues(prev => ({
+        ...prev,
+        [transactionId]: urlData.publicUrl
+      }));
+
+      // Save to database
+      updateTransaction.mutate({
+        transactionId,
+        proof: urlData.publicUrl
+      });
+
+      toast({
+        title: "File uploaded",
+        description: "Proof file has been uploaded successfully",
+      });
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast({
+        title: "Upload failed",
+        description: error.message || "Failed to upload file",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingProofs(prev => ({ ...prev, [transactionId]: false }));
+    }
+  };
 
   const formatCurrency = (amount: number | null) => {
     if (amount === null || amount === undefined) return "—";
@@ -210,6 +295,23 @@ const Transactions = () => {
     }
   }, [selectedStatementId, selectedStatement?.file_url]);
 
+  // Initialize proof values from transactions when they load
+  useEffect(() => {
+    if (transactions && transactions.length > 0) {
+      const initialProofs: Record<string, string> = {};
+      transactions.forEach((txn: any) => {
+        const metadata = txn.metadata as any;
+        // Initialize with existing proof or empty string
+        initialProofs[txn.id] = metadata?.proof || "";
+      });
+      setProofValues(prev => ({
+        ...prev,
+        ...initialProofs
+      }));
+      console.log('Initialized proof values for', transactions.length, 'transactions');
+    }
+  }, [transactions]);
+
   if (selectedStatementId && selectedStatement) {
     return (
       <DashboardLayout>
@@ -358,6 +460,89 @@ const Transactions = () => {
                           const particularsValue = particularsColIndex >= 0 ? row[particularsColIndex] : null;
                           const modeOfPayment = extractModeOfPayment(particularsValue);
 
+                          // Try to find matching transaction from database
+                          // Match by date and amount
+                          const dateColIndex = excelHeaders.findIndex(h => 
+                            String(h || "").toLowerCase().includes("date") && 
+                            !String(h || "").toLowerCase().includes("value")
+                          );
+                          const debitColIndex = excelHeaders.findIndex(h => 
+                            String(h || "").toLowerCase().includes("debit")
+                          );
+                          const creditColIndexForMatch = excelHeaders.findIndex(h => 
+                            String(h || "").toLowerCase().includes("credit")
+                          );
+                          
+                          // Extract row data for matching
+                          const rowDate = dateColIndex >= 0 ? row[dateColIndex] : null;
+                          const rowDebit = debitColIndex >= 0 ? parseFloat(String(row[debitColIndex] || "").replace(/[^0-9.-]/g, "")) : 0;
+                          const rowCredit = creditColIndexForMatch >= 0 ? parseFloat(String(row[creditColIndexForMatch] || "").replace(/[^0-9.-]/g, "")) : 0;
+                          
+                          let matchingTransaction: any = null;
+                          if (transactions && transactions.length > 0) {
+                            
+                            // Try to match transaction - use row index as fallback if exact match fails
+                            // First try exact match by date and amount
+                            matchingTransaction = transactions.find((txn: any) => {
+                              try {
+                                const txnDate = new Date(txn.transaction_date).toISOString().split('T')[0];
+                                let rowDateStr = null;
+                                if (rowDate) {
+                                  // Handle Excel date serial numbers
+                                  if (typeof rowDate === 'number') {
+                                    const excelEpoch = new Date(1899, 11, 30);
+                                    const date = new Date(excelEpoch.getTime() + rowDate * 86400000);
+                                    rowDateStr = date.toISOString().split('T')[0];
+                                  } else {
+                                    rowDateStr = new Date(rowDate).toISOString().split('T')[0];
+                                  }
+                                }
+                                const dateMatch = rowDateStr && txnDate === rowDateStr;
+                                const amountMatch = (rowDebit > 0 && Math.abs(txn.debit_amount - rowDebit) < 0.01) ||
+                                                  (rowCredit > 0 && Math.abs(txn.credit_amount - rowCredit) < 0.01);
+                                return dateMatch && amountMatch;
+                              } catch (e) {
+                                return false;
+                              }
+                            });
+                            
+                            // Fallback: match by row index if we have transactions in order
+                            if (!matchingTransaction && transactions.length > rowIdx) {
+                              // Try to match by position in the list (assuming transactions are in the same order)
+                              const sortedTransactions = [...transactions].sort((a, b) => 
+                                new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+                              );
+                              if (rowIdx < sortedTransactions.length) {
+                                matchingTransaction = sortedTransactions[rowIdx];
+                              }
+                            }
+                          }
+
+                          const transactionId = matchingTransaction?.id;
+                          const currentProof = transactionId ? (proofValues[transactionId] || "") : "";
+                          
+                          // Debug: Log first few rows to verify matching
+                          if (rowIdx < 3 && transactions && transactions.length > 0) {
+                            console.log(`Row ${rowIdx} matching:`, {
+                              hasTransaction: !!matchingTransaction,
+                              transactionId,
+                              transactionsAvailable: transactions.length,
+                              rowDate: dateColIndex >= 0 ? row[dateColIndex] : null,
+                              rowDebit,
+                              rowCredit
+                            });
+                          }
+                          
+                          // Debug logging
+                          if (rowIdx < 3) {
+                            console.log(`Row ${rowIdx}:`, {
+                              transactionId,
+                              hasTransaction: !!matchingTransaction,
+                              currentProof,
+                              transactionsCount: transactions?.length
+                            });
+                          }
+
                           // Build data row with Proof inserted after Credit and Particulars replaced with Mode of Payment
                           const cells: JSX.Element[] = [];
                           row.forEach((cell: any, cellIdx: number) => {
@@ -387,7 +572,231 @@ const Transactions = () => {
                             if (cellIdx === creditColIndex && creditColIndex >= 0) {
                               cells.push(
                                 <TableCell key={`proof-${rowIdx}`} className="border border-border p-2 text-xs align-top break-words bg-green-50/30">
-                                  <span className="text-muted-foreground">—</span>
+                                  {transactionId ? (
+                                    <div className="space-y-1 min-w-[200px]">
+                                      {currentProof ? (
+                                        <div className="flex items-center gap-2 mb-1">
+                                          {currentProof.startsWith('http') || currentProof.startsWith('/') ? (
+                                            <a
+                                              href={currentProof}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs underline truncate"
+                                            >
+                                              <LinkIcon className="h-3 w-3" />
+                                              <span className="truncate max-w-[150px]">View Proof</span>
+                                            </a>
+                                          ) : (
+                                            <a
+                                              href={currentProof}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs underline truncate"
+                                            >
+                                              <File className="h-3 w-3" />
+                                              <span className="truncate max-w-[150px]">View File</span>
+                                            </a>
+                                          )}
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-5 w-5"
+                                            onClick={() => {
+                                              setProofValues(prev => ({
+                                                ...prev,
+                                                [transactionId]: ""
+                                              }));
+                                              updateTransaction.mutate({
+                                                transactionId,
+                                                proof: ""
+                                              });
+                                            }}
+                                            title="Clear proof"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      ) : null}
+                                      <div className="flex gap-1">
+                                        <Input
+                                          value={currentProof}
+                                          onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            setProofValues(prev => ({
+                                              ...prev,
+                                              [transactionId]: newValue
+                                            }));
+                                          }}
+                                          onBlur={(e) => {
+                                            if (transactionId) {
+                                              const proofValue = e.target.value.trim();
+                                              // Save even if empty to clear existing proof
+                                              updateTransaction.mutate({
+                                                transactionId,
+                                                proof: proofValue
+                                              });
+                                            }
+                                          }}
+                                          placeholder="Enter URL or upload file"
+                                          className="h-8 text-xs flex-1"
+                                        />
+                                        <input
+                                          type="file"
+                                          id={`proof-file-${transactionId}`}
+                                          className="hidden"
+                                          accept="image/*,application/pdf"
+                                          onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file && transactionId) {
+                                              handleProofFileUpload(transactionId, file);
+                                            }
+                                            // Reset input
+                                            e.target.value = '';
+                                          }}
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon"
+                                          className="h-8 w-8"
+                                          onClick={() => {
+                                            document.getElementById(`proof-file-${transactionId}`)?.click();
+                                          }}
+                                          disabled={uploadingProofs[transactionId]}
+                                          title="Upload file"
+                                        >
+                                          {uploadingProofs[transactionId] ? (
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                          ) : (
+                                            <Upload className="h-3 w-3" />
+                                          )}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : transactions && transactions.length > 0 ? (
+                                    // Show editable field even if no exact match - use row index as fallback
+                                    (() => {
+                                      // Try to get transaction by row index as fallback
+                                      const sortedTransactions = [...transactions].sort((a, b) => 
+                                        new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+                                      );
+                                      const fallbackTransaction = rowIdx >= 0 && rowIdx < sortedTransactions.length 
+                                        ? sortedTransactions[rowIdx] 
+                                        : null;
+                                      const fallbackTransactionId = fallbackTransaction?.id;
+                                      const fallbackProof = fallbackTransactionId ? (proofValues[fallbackTransactionId] || "") : "";
+                                      
+                                      if (fallbackTransactionId) {
+                                        return (
+                                          <div className="space-y-1 min-w-[200px]">
+                                            {fallbackProof ? (
+                                              <div className="flex items-center gap-2 mb-1">
+                                                {fallbackProof.startsWith('http') || fallbackProof.startsWith('/') ? (
+                                                  <a
+                                                    href={fallbackProof}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs underline truncate"
+                                                  >
+                                                    <LinkIcon className="h-3 w-3" />
+                                                    <span className="truncate max-w-[150px]">View Proof</span>
+                                                  </a>
+                                                ) : (
+                                                  <a
+                                                    href={fallbackProof}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs underline truncate"
+                                                  >
+                                                    <File className="h-3 w-3" />
+                                                    <span className="truncate max-w-[150px]">View File</span>
+                                                  </a>
+                                                )}
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-5 w-5"
+                                                  onClick={() => {
+                                                    setProofValues(prev => ({
+                                                      ...prev,
+                                                      [fallbackTransactionId]: ""
+                                                    }));
+                                                    updateTransaction.mutate({
+                                                      transactionId: fallbackTransactionId,
+                                                      proof: ""
+                                                    });
+                                                  }}
+                                                  title="Clear proof"
+                                                >
+                                                  <X className="h-3 w-3" />
+                                                </Button>
+                                              </div>
+                                            ) : null}
+                                            <div className="flex gap-1">
+                                              <Input
+                                                value={fallbackProof}
+                                                onChange={(e) => {
+                                                  const newValue = e.target.value;
+                                                  setProofValues(prev => ({
+                                                    ...prev,
+                                                    [fallbackTransactionId]: newValue
+                                                  }));
+                                                }}
+                                                onBlur={(e) => {
+                                                  if (fallbackTransactionId) {
+                                                    const proofValue = e.target.value.trim();
+                                                    updateTransaction.mutate({
+                                                      transactionId: fallbackTransactionId,
+                                                      proof: proofValue
+                                                    });
+                                                  }
+                                                }}
+                                                placeholder="Enter URL or upload file"
+                                                className="h-8 text-xs flex-1"
+                                              />
+                                              <input
+                                                type="file"
+                                                id={`proof-file-${fallbackTransactionId}`}
+                                                className="hidden"
+                                                accept="image/*,application/pdf"
+                                                onChange={(e) => {
+                                                  const file = e.target.files?.[0];
+                                                  if (file && fallbackTransactionId) {
+                                                    handleProofFileUpload(fallbackTransactionId, file);
+                                                  }
+                                                  e.target.value = '';
+                                                }}
+                                              />
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                className="h-8 w-8"
+                                                onClick={() => {
+                                                  document.getElementById(`proof-file-${fallbackTransactionId}`)?.click();
+                                                }}
+                                                disabled={uploadingProofs[fallbackTransactionId]}
+                                                title="Upload file"
+                                              >
+                                                {uploadingProofs[fallbackTransactionId] ? (
+                                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                                ) : (
+                                                  <Upload className="h-3 w-3" />
+                                                )}
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                      return (
+                                        <div className="text-muted-foreground text-xs italic">
+                                          No transaction match
+                                        </div>
+                                      );
+                                    })()
+                                  ) : (
+                                    <span className="text-muted-foreground text-xs">—</span>
+                                  )}
                                 </TableCell>
                               );
                             }

@@ -140,3 +140,56 @@ export function useDeleteBankStatement() {
     },
   });
 }
+
+export function useUpdateBankStatementTransaction() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      transactionId,
+      proof,
+    }: {
+      transactionId: string;
+      proof: string;
+    }) => {
+      // Get current transaction to preserve existing metadata
+      const { data: currentTransaction, error: fetchError } = await supabase
+        .from("bank_statement_transactions")
+        .select("metadata")
+        .eq("id", transactionId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Update metadata with proof value
+      const currentMetadata = (currentTransaction?.metadata as any) || {};
+      const updatedMetadata = {
+        ...currentMetadata,
+        proof: proof || null,
+      };
+
+      const { error } = await supabase
+        .from("bank_statement_transactions")
+        .update({
+          metadata: updatedMetadata,
+        })
+        .eq("id", transactionId);
+
+      if (error) throw error;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["bank-statement-transactions"] });
+      toast({
+        title: "Proof updated",
+        description: "Transaction proof has been saved successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update proof",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
