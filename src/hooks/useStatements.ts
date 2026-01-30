@@ -49,6 +49,26 @@ export function useBankStatementTransactions(statementId: string | undefined) {
   });
 }
 
+// Hook to fetch a single statement by ID (works without authentication for shared links)
+export function useBankStatement(statementId: string | undefined) {
+  return useQuery({
+    queryKey: ["bank-statement", statementId],
+    queryFn: async () => {
+      if (!statementId) return null;
+
+      const { data, error } = await supabase
+        .from("bank_statements")
+        .select("*")
+        .eq("id", statementId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data as BankStatement | null;
+    },
+    enabled: !!statementId,
+  });
+}
+
 export function useCreateBankStatement() {
   const queryClient = useQueryClient();
   const { data: company } = useCompany();

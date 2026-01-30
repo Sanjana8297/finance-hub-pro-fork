@@ -43,6 +43,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
+import { useMemo } from "react";
 
 const Statement = () => {
   const [isUploading, setIsUploading] = useState(false);
@@ -54,6 +55,112 @@ const Statement = () => {
   const [excelData, setExcelData] = useState<any[]>([]);
   const [loadingDocument, setLoadingDocument] = useState(false);
   const [documentMetadata, setDocumentMetadata] = useState<any>(null);
+
+  // Extract transaction date from metadata and convert to YYYY-MM-DD format (same logic as Transactions.tsx)
+  const getTransactionDateFromMetadata = (metadata: any): string | null => {
+    if (!metadata) return null;
+    
+    let dateStr: string | null = null;
+    
+    // Try to get from original_data first
+    if (metadata.original_data && metadata.original_data["Transaction Date"]) {
+      dateStr = metadata.original_data["Transaction Date"];
+    } else if (metadata.all_columns && Array.isArray(metadata.all_columns)) {
+      // Fallback: try to get from all_columns
+      const transactionDateColumn = metadata.all_columns.find((col: any) => 
+        col.header && col.header.toLowerCase().includes("transaction date")
+      );
+      if (transactionDateColumn && transactionDateColumn.value) {
+        dateStr = transactionDateColumn.value;
+      }
+    }
+    
+    if (!dateStr) return null;
+    
+    // Parse date format like "14-May-2025" to "YYYY-MM-DD"
+    try {
+      // First try standard Date parsing
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // Continue to manual parsing
+    }
+    
+    // Manual parsing for format "DD-MMM-YYYY" (e.g., "14-May-2025")
+    const parts = String(dateStr).trim().split('-');
+    if (parts.length === 3) {
+      const day = parts[0].trim().padStart(2, '0');
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthName = parts[1].trim();
+      const month = monthNames.findIndex(m => m.toLowerCase() === monthName.toLowerCase());
+      const year = parts[2].trim();
+      
+      if (month >= 0 && day && year) {
+        const monthStr = String(month + 1).padStart(2, '0');
+        return `${year}-${monthStr}-${day}`;
+      }
+    }
+    
+    // Try parsing as "DD/MM/YYYY" or other formats
+    try {
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // Ignore
+    }
+    
+    return null;
+  };
+
+  // Component to calculate and display period from transactions (same logic as Transactions.tsx)
+  const StatementPeriod = ({ statementId }: { statementId: string }) => {
+    const { data: statementTransactions } = useBankStatementTransactions(statementId);
+    
+    const period = useMemo(() => {
+      if (!statementTransactions || statementTransactions.length === 0) {
+        return null;
+      }
+      
+      // Type assertion for transactions array
+      const transactions = statementTransactions as any[];
+      
+      // Sort transactions by date to get first and last
+      const sortedTransactions = [...transactions].sort((a: any, b: any) => {
+        const dateA = getTransactionDateFromMetadata(a.metadata) || a.transaction_date;
+        const dateB = getTransactionDateFromMetadata(b.metadata) || b.transaction_date;
+        return new Date(dateA).getTime() - new Date(dateB).getTime();
+      });
+      
+      const firstTransaction = sortedTransactions[0];
+      const lastTransaction = sortedTransactions[sortedTransactions.length - 1];
+      
+      // Get dates from metadata if available, otherwise use transaction_date
+      const firstDate = getTransactionDateFromMetadata(firstTransaction.metadata) || firstTransaction.transaction_date;
+      const lastDate = getTransactionDateFromMetadata(lastTransaction.metadata) || lastTransaction.transaction_date;
+      
+      if (firstDate && lastDate) {
+        // Parse dates - they might be in YYYY-MM-DD format from metadata
+        const firstDateObj = new Date(firstDate);
+        const lastDateObj = new Date(lastDate);
+        
+        if (!isNaN(firstDateObj.getTime()) && !isNaN(lastDateObj.getTime())) {
+          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(lastDateObj, "MMM d, yyyy")}`;
+        }
+      }
+      
+      return null;
+    }, [statementTransactions]);
+    
+    if (period) {
+      return <div className="text-sm">{period}</div>;
+    }
+    
+    return <span className="text-muted-foreground">—</span>;
+  };
 
   const getFileExtension = (fileName: string) => {
     return fileName.split('.').pop()?.toLowerCase() || '';
@@ -1304,6 +1411,10 @@ const Statement = () => {
           // Set opening balance from first transaction and closing balance from last transaction
           let finalOpeningBalance = openingBalance;
           let finalClosingBalance = closingBalance;
+          
+          // Get period dates from first and last transactions
+          let periodStartDate: Date | null = null;
+          let periodEndDate: Date | null = null;
 
           if (sortedTransactions.length > 0) {
             // If we have a balance column, use the first transaction's balance to calculate opening
@@ -1314,6 +1425,17 @@ const Statement = () => {
             // Use the last transaction's balance as closing balance
             if (sortedTransactions[sortedTransactions.length - 1].balance !== null) {
               finalClosingBalance = sortedTransactions[sortedTransactions.length - 1].balance;
+            }
+            
+            // Get period dates from first and last transactions
+            const firstTransactionDate = new Date(sortedTransactions[0].transaction_date);
+            const lastTransactionDate = new Date(sortedTransactions[sortedTransactions.length - 1].transaction_date);
+            
+            if (!isNaN(firstTransactionDate.getTime())) {
+              periodStartDate = firstTransactionDate;
+            }
+            if (!isNaN(lastTransactionDate.getTime())) {
+              periodEndDate = lastTransactionDate;
             }
           }
 
@@ -1340,8 +1462,8 @@ const Statement = () => {
             file_url: "", // Will be set after upload
             bank_name: null,
             account_number: null,
-            statement_period_start: minDate && !isNaN(minDate.getTime()) ? minDate.toISOString().split("T")[0] : null,
-            statement_period_end: maxDate && !isNaN(maxDate.getTime()) ? maxDate.toISOString().split("T")[0] : null,
+            statement_period_start: periodStartDate && !isNaN(periodStartDate.getTime()) ? periodStartDate.toISOString().split("T")[0] : null,
+            statement_period_end: periodEndDate && !isNaN(periodEndDate.getTime()) ? periodEndDate.toISOString().split("T")[0] : null,
             total_debits: finalTotalDebits,
             total_credits: finalTotalCredits,
             opening_balance: finalOpeningBalance,
@@ -1645,14 +1767,7 @@ const Statement = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {statement.statement_period_start && statement.statement_period_end ? (
-                        <div className="text-sm">
-                          {format(new Date(statement.statement_period_start), "MMM d, yyyy")} -{" "}
-                          {format(new Date(statement.statement_period_end), "MMM d, yyyy")}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
+                      <StatementPeriod statementId={statement.id} />
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">

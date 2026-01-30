@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { SharedLayout } from "@/components/layout/SharedLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +28,7 @@ import {
   Filter,
 } from "lucide-react";
 import { format } from "date-fns";
-import { useBankStatements, useBankStatementTransactions, useUpdateBankStatementTransaction } from "@/hooks/useStatements";
+import { useBankStatements, useBankStatementTransactions, useUpdateBankStatementTransaction, useBankStatement } from "@/hooks/useStatements";
 import { useCompany } from "@/hooks/useCompany";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -61,7 +63,7 @@ import {
 import { useExpenses } from "@/hooks/useExpenses";
 import { useReceipts } from "@/hooks/useReceipts";
 import { useCategories, useCreateCategory } from "@/hooks/useCategories";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Share2, Copy, Check } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -71,6 +73,10 @@ import {
 } from "@/components/ui/select";
 
 const Transactions = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isSharedMode = searchParams.get("shared") === "true";
+  const sharedStatementId = searchParams.get("statementId");
+  
   const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
   const [excelData, setExcelData] = useState<any[]>([]);
   const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
@@ -84,11 +90,19 @@ const Transactions = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [proofToDelete, setProofToDelete] = useState<{ transactionId: string; proofUrl: string } | null>(null);
   const [deletingProof, setDeletingProof] = useState(false);
+  // In shared mode, fetch statement directly by ID without requiring company/auth
+  // In normal mode, use the full statements list
+  const { data: sharedStatement } = useBankStatement(isSharedMode ? selectedStatementId || undefined : undefined);
   const { data: statements, isLoading } = useBankStatements();
   const { data: transactions, isLoading: transactionsLoading } = useBankStatementTransactions(selectedStatementId);
   const { data: company } = useCompany();
   const { user } = useAuth();
   const updateTransaction = useUpdateBankStatementTransaction();
+  
+  // Use shared statement if in shared mode, otherwise use statements list
+  const selectedStatement = isSharedMode 
+    ? sharedStatement || null
+    : statements?.find((s) => s.id === selectedStatementId);
   const { data: expenses } = useExpenses();
   const { data: receipts } = useReceipts();
   const { data: categories } = useCategories();
@@ -96,6 +110,7 @@ const Transactions = () => {
   const [newCategoryInputs, setNewCategoryInputs] = useState<Record<string, string>>({});
   const [showNewCategoryInput, setShowNewCategoryInput] = useState<Record<string, boolean>>({});
   const [notesValues, setNotesValues] = useState<Record<string, string>>({});
+  const [linkCopied, setLinkCopied] = useState(false);
   
   // Filter states
   const [filterCategory, setFilterCategory] = useState<string>("");
@@ -103,9 +118,54 @@ const Transactions = () => {
   const [filterTransactionType, setFilterTransactionType] = useState<string>(""); // "debit", "credit", or ""
   const [filterStartDate, setFilterStartDate] = useState<string>("");
   const [filterEndDate, setFilterEndDate] = useState<string>("");
+  
+  // Initialize selectedStatementId from URL if in shared mode
+  useEffect(() => {
+    if (isSharedMode && sharedStatementId && !selectedStatementId) {
+      setSelectedStatementId(sharedStatementId);
+    }
+  }, [isSharedMode, sharedStatementId, selectedStatementId]);
+  
+  // Function to generate shareable link
+  const generateShareableLink = () => {
+    if (!selectedStatementId) return "";
+    const baseUrl = window.location.origin;
+    const shareUrl = `${baseUrl}/transactions?shared=true&statementId=${selectedStatementId}`;
+    return shareUrl;
+  };
+  
+  // Function to copy shareable link to clipboard
+  const handleShareLink = async () => {
+    const shareUrl = generateShareableLink();
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setLinkCopied(true);
+      toast({
+        title: "Link copied!",
+        description: "Shareable link has been copied to clipboard.",
+      });
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (err) {
+      toast({
+        title: "Failed to copy",
+        description: "Could not copy link to clipboard.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Handle file upload for proof
   const handleProofFileUpload = async (transactionId: string, file: File) => {
+    // In shared mode, file uploads are disabled (handled by UI)
+    if (isSharedMode) {
+      toast({
+        title: "Read-only mode",
+        description: "File uploads are not available in shared view",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     if (!user) {
       toast({
         title: "Not authenticated",
@@ -532,8 +592,6 @@ const Transactions = () => {
     }
   };
 
-  const selectedStatement = statements?.find((s) => s.id === selectedStatementId);
-
   // Load Excel when statement is selected
   useEffect(() => {
     if (selectedStatement?.file_url) {
@@ -577,18 +635,100 @@ const Transactions = () => {
     console.log('deleteConfirmOpen state changed to:', deleteConfirmOpen);
   }, [deleteConfirmOpen]);
 
+  // Component to calculate and display period from transactions (same logic as Statement.tsx)
+  const StatementPeriod = ({ statementId }: { statementId: string }) => {
+    const { data: statementTransactions } = useBankStatementTransactions(statementId);
+    
+    const period = useMemo(() => {
+      if (!statementTransactions || statementTransactions.length === 0) {
+        return null;
+      }
+      
+      // Type assertion for transactions array
+      const transactions = statementTransactions as any[];
+      
+      // Sort transactions by date to get first and last
+      const sortedTransactions = [...transactions].sort((a: any, b: any) => {
+        const dateA = getTransactionDateFromMetadata(a.metadata) || a.transaction_date;
+        const dateB = getTransactionDateFromMetadata(b.metadata) || b.transaction_date;
+        return new Date(dateA).getTime() - new Date(dateB).getTime();
+      });
+      
+      const firstTransaction = sortedTransactions[0];
+      const lastTransaction = sortedTransactions[sortedTransactions.length - 1];
+      
+      // Get dates from metadata if available, otherwise use transaction_date
+      const firstDate = getTransactionDateFromMetadata(firstTransaction.metadata) || firstTransaction.transaction_date;
+      const lastDate = getTransactionDateFromMetadata(lastTransaction.metadata) || lastTransaction.transaction_date;
+      
+      if (firstDate && lastDate) {
+        // Parse dates - they might be in YYYY-MM-DD format from metadata
+        const firstDateObj = new Date(firstDate);
+        const lastDateObj = new Date(lastDate);
+        
+        if (!isNaN(firstDateObj.getTime()) && !isNaN(lastDateObj.getTime())) {
+          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(lastDateObj, "MMM d, yyyy")}`;
+        }
+      }
+      
+      return null;
+    }, [statementTransactions]);
+    
+    if (period) {
+      return <div className="text-sm">{period}</div>;
+    }
+    
+    return <span className="text-muted-foreground">—</span>;
+  };
+
   if (selectedStatementId && selectedStatement) {
+    // Use SharedLayout in shared mode, DashboardLayout otherwise
+    const Layout = isSharedMode ? SharedLayout : DashboardLayout;
+    
     return (
-      <DashboardLayout>
+      <Layout>
         <div className="mb-8">
-          <Button
-            variant="ghost"
-            onClick={() => setSelectedStatementId(null)}
-            className="mb-4"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Statements
-          </Button>
+          <div className="flex items-center justify-between mb-4">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (isSharedMode) {
+                  // In shared mode, just clear the URL params
+                  setSearchParams({});
+                } else {
+                  setSelectedStatementId(null);
+                }
+              }}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              {isSharedMode ? "Exit Shared View" : "Back to Statements"}
+            </Button>
+            {!isSharedMode && (
+              <Button
+                variant="outline"
+                onClick={handleShareLink}
+                className="flex items-center gap-2"
+              >
+                {linkCopied ? (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Link Copied!
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="h-4 w-4" />
+                    Share Link
+                  </>
+                )}
+              </Button>
+            )}
+            {isSharedMode && (
+              <Badge variant="secondary" className="flex items-center gap-2">
+                <Share2 className="h-3 w-3" />
+                Shared View (Read-Only)
+              </Badge>
+            )}
+          </div>
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Transaction Details</h1>
             <p className="text-muted-foreground">
@@ -603,8 +743,35 @@ const Transactions = () => {
               <div>
                 <CardTitle>Statement Information</CardTitle>
                 <CardDescription>
-                  Period: {selectedStatement.statement_period_start && selectedStatement.statement_period_end ? 
-                    `${format(new Date(selectedStatement.statement_period_start), "MMM d, yyyy")} - ${format(new Date(selectedStatement.statement_period_end), "MMM d, yyyy")}` : 'N/A'}
+                  Period: {(() => {
+                    // Get first and last transaction dates from transactions array
+                    if (transactions && transactions.length > 0) {
+                      // Sort transactions by date to get first and last
+                      const sortedTransactions = [...transactions].sort((a, b) => {
+                        const dateA = getTransactionDateFromMetadata(a.metadata) || a.transaction_date;
+                        const dateB = getTransactionDateFromMetadata(b.metadata) || b.transaction_date;
+                        return new Date(dateA).getTime() - new Date(dateB).getTime();
+                      });
+                      
+                      const firstTransaction = sortedTransactions[0];
+                      const lastTransaction = sortedTransactions[sortedTransactions.length - 1];
+                      
+                      // Get dates from metadata if available, otherwise use transaction_date
+                      const firstDate = getTransactionDateFromMetadata(firstTransaction.metadata) || firstTransaction.transaction_date;
+                      const lastDate = getTransactionDateFromMetadata(lastTransaction.metadata) || lastTransaction.transaction_date;
+                      
+                      if (firstDate && lastDate) {
+                        // Parse dates - they might be in YYYY-MM-DD format from metadata
+                        const firstDateObj = new Date(firstDate);
+                        const lastDateObj = new Date(lastDate);
+                        
+                        if (!isNaN(firstDateObj.getTime()) && !isNaN(lastDateObj.getTime())) {
+                          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(lastDateObj, "MMM d, yyyy")}`;
+                        }
+                      }
+                    }
+                    return 'N/A';
+                  })()}
                 </CardDescription>
               </div>
               <div className="flex gap-4 text-sm">
@@ -637,8 +804,12 @@ const Transactions = () => {
               {/* Category Filter */}
               <div className="space-y-2">
                 <Label htmlFor="filter-category">Category</Label>
-                <Select value={filterCategory || "all"} onValueChange={(value) => setFilterCategory(value === "all" ? "" : value)}>
-                  <SelectTrigger id="filter-category">
+                <Select 
+                  value={filterCategory || "all"} 
+                  onValueChange={(value) => setFilterCategory(value === "all" ? "" : value)}
+                  disabled={isSharedMode}
+                >
+                  <SelectTrigger id="filter-category" disabled={isSharedMode}>
                     <SelectValue placeholder="All categories" />
                   </SelectTrigger>
                   <SelectContent>
@@ -655,8 +826,12 @@ const Transactions = () => {
               {/* Mode of Payment Filter */}
               <div className="space-y-2">
                 <Label htmlFor="filter-mode">Mode of Payment</Label>
-                <Select value={filterModeOfPayment || "all"} onValueChange={(value) => setFilterModeOfPayment(value === "all" ? "" : value)}>
-                  <SelectTrigger id="filter-mode">
+                <Select 
+                  value={filterModeOfPayment || "all"} 
+                  onValueChange={(value) => setFilterModeOfPayment(value === "all" ? "" : value)}
+                  disabled={isSharedMode}
+                >
+                  <SelectTrigger id="filter-mode" disabled={isSharedMode}>
                     <SelectValue placeholder="All modes" />
                   </SelectTrigger>
                   <SelectContent>
@@ -673,8 +848,12 @@ const Transactions = () => {
               {/* Transaction Type Filter */}
               <div className="space-y-2">
                 <Label htmlFor="filter-type">Type</Label>
-                <Select value={filterTransactionType || "all"} onValueChange={(value) => setFilterTransactionType(value === "all" ? "" : value)}>
-                  <SelectTrigger id="filter-type">
+                <Select 
+                  value={filterTransactionType || "all"} 
+                  onValueChange={(value) => setFilterTransactionType(value === "all" ? "" : value)}
+                  disabled={isSharedMode}
+                >
+                  <SelectTrigger id="filter-type" disabled={isSharedMode}>
                     <SelectValue placeholder="All types" />
                   </SelectTrigger>
                   <SelectContent>
@@ -693,6 +872,7 @@ const Transactions = () => {
                   type="date"
                   value={filterStartDate}
                   onChange={(e) => setFilterStartDate(e.target.value)}
+                  disabled={isSharedMode}
                 />
               </div>
 
@@ -704,6 +884,7 @@ const Transactions = () => {
                   type="date"
                   value={filterEndDate}
                   onChange={(e) => setFilterEndDate(e.target.value)}
+                  disabled={isSharedMode}
                 />
               </div>
             </div>
@@ -719,6 +900,7 @@ const Transactions = () => {
                     setFilterStartDate("");
                     setFilterEndDate("");
                   }}
+                  disabled={isSharedMode}
                 >
                   <X className="h-4 w-4 mr-2" />
                   Clear Filters
@@ -1227,7 +1409,11 @@ const Transactions = () => {
                                 >
                                   {transactionId ? (
                                     <div className="min-w-[120px]">
-                                      {showNewCategoryInput[transactionId] ? (
+                                      {isSharedMode ? (
+                                        <span className="text-xs">
+                                          {matchingTransaction?.category || <span className="text-muted-foreground">—</span>}
+                                        </span>
+                                      ) : showNewCategoryInput[transactionId] ? (
                                         <div className="flex gap-1">
                                           <Input
                                             value={newCategoryInputs[transactionId] || ""}
@@ -1311,8 +1497,9 @@ const Transactions = () => {
                                               });
                                             }
                                           }}
+                                          disabled={isSharedMode}
                                         >
-                                          <SelectTrigger className="h-7 text-xs">
+                                          <SelectTrigger className="h-7 text-xs" disabled={isSharedMode}>
                                             <SelectValue placeholder="Select category" />
                                           </SelectTrigger>
                                           <SelectContent>
@@ -1419,99 +1606,106 @@ const Transactions = () => {
                                               <span className="truncate max-w-[150px]">View File</span>
                                             </a>
                                           )}
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-5 w-5 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                            onClick={(e) => {
-                                              e.preventDefault();
-                                              e.stopPropagation();
-                                              console.log('Delete button clicked for transaction:', transactionId);
-                                              setProofToDelete({ transactionId, proofUrl: currentProof });
-                                              setDeleteConfirmOpen(true);
-                                              console.log('Delete confirm dialog should open');
-                                            }}
-                                            title="Delete proof"
-                                          >
-                                            <Trash2 className="h-3 w-3" />
-                                          </Button>
+                                          {!isSharedMode && (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-5 w-5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                console.log('Delete button clicked for transaction:', transactionId);
+                                                setProofToDelete({ transactionId, proofUrl: currentProof });
+                                                setDeleteConfirmOpen(true);
+                                                console.log('Delete confirm dialog should open');
+                                              }}
+                                              title="Delete proof"
+                                            >
+                                              <Trash2 className="h-3 w-3" />
+                                            </Button>
+                                          )}
                                         </div>
                                       ) : null}
-                                      <div className="flex gap-1">
-                                        <Input
-                                          value={currentProof}
-                                          onChange={(e) => {
-                                            const newValue = e.target.value;
-                                            setProofValues(prev => ({
-                                              ...prev,
-                                              [transactionId]: newValue
-                                            }));
-                                          }}
-                                          onBlur={(e) => {
-                                            if (transactionId) {
-                                              const proofValue = e.target.value.trim();
-                                              // Save even if empty to clear existing proof
-                                              updateTransaction.mutate({
-                                                transactionId,
-                                                proof: proofValue
-                                              });
-                                            }
-                                          }}
-                                          placeholder="Enter URL or upload file"
-                                          className="h-8 text-xs flex-1"
-                                        />
-                                        <input
-                                          type="file"
-                                          id={`proof-file-${transactionId}`}
-                                          className="hidden"
-                                          accept="image/*,application/pdf"
-                                          onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file && transactionId) {
-                                              handleProofFileUpload(transactionId, file);
-                                            }
-                                            // Reset input
-                                            e.target.value = '';
-                                          }}
-                                        />
-                                        <DropdownMenu>
-                                          <DropdownMenuTrigger asChild>
-                                            <Button
-                                              type="button"
-                                              variant="outline"
-                                              size="icon"
-                                              className="h-8 w-8"
-                                              disabled={uploadingProofs[transactionId]}
-                                              title="Add proof"
-                                            >
-                                              {uploadingProofs[transactionId] ? (
-                                                <Loader2 className="h-3 w-3 animate-spin" />
-                                              ) : (
-                                                <Plus className="h-3 w-3" />
-                                              )}
-                                            </Button>
-                                          </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="end">
-                                            <DropdownMenuItem
-                                              onClick={() => {
-                                                document.getElementById(`proof-file-${transactionId}`)?.click();
-                                              }}
-                                            >
-                                              <Upload className="h-4 w-4 mr-2" />
-                                              Upload a file
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem
-                                              onClick={() => {
-                                                setCurrentTransactionId(transactionId);
-                                                setLinkDialogOpen(true);
-                                              }}
-                                            >
-                                              <LinkIcon className="h-4 w-4 mr-2" />
-                                              Link from invoice or expense
-                                            </DropdownMenuItem>
-                                          </DropdownMenuContent>
-                                        </DropdownMenu>
-                                      </div>
+                                      {!isSharedMode && (
+                                        <div className="flex gap-1">
+                                          <Input
+                                            value={currentProof}
+                                            onChange={(e) => {
+                                              const newValue = e.target.value;
+                                              setProofValues(prev => ({
+                                                ...prev,
+                                                [transactionId]: newValue
+                                              }));
+                                            }}
+                                            onBlur={(e) => {
+                                              if (transactionId) {
+                                                const proofValue = e.target.value.trim();
+                                                // Save even if empty to clear existing proof
+                                                updateTransaction.mutate({
+                                                  transactionId,
+                                                  proof: proofValue
+                                                });
+                                              }
+                                            }}
+                                            placeholder="Enter URL or upload file"
+                                            className="h-8 text-xs flex-1"
+                                          />
+                                          <input
+                                            type="file"
+                                            id={`proof-file-${transactionId}`}
+                                            className="hidden"
+                                            accept="image/*,application/pdf"
+                                            onChange={(e) => {
+                                              const file = e.target.files?.[0];
+                                              if (file && transactionId) {
+                                                handleProofFileUpload(transactionId, file);
+                                              }
+                                              // Reset input
+                                              e.target.value = '';
+                                            }}
+                                          />
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                className="h-8 w-8"
+                                                disabled={uploadingProofs[transactionId]}
+                                                title="Add proof"
+                                              >
+                                                {uploadingProofs[transactionId] ? (
+                                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                                ) : (
+                                                  <Plus className="h-3 w-3" />
+                                                )}
+                                              </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                              <DropdownMenuItem
+                                                onClick={() => {
+                                                  document.getElementById(`proof-file-${transactionId}`)?.click();
+                                                }}
+                                              >
+                                                <Upload className="h-4 w-4 mr-2" />
+                                                Upload a file
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                onClick={() => {
+                                                  setCurrentTransactionId(transactionId);
+                                                  setLinkDialogOpen(true);
+                                                }}
+                                              >
+                                                <LinkIcon className="h-4 w-4 mr-2" />
+                                                Link from invoice or expense
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
+                                        </div>
+                                      )}
+                                      {isSharedMode && !currentProof && (
+                                        <span className="text-muted-foreground text-xs">—</span>
+                                      )}
                                     </div>
                                   ) : transactions && transactions.length > 0 ? (
                                     // Show editable field even if no exact match - use row index as fallback
@@ -1552,97 +1746,104 @@ const Transactions = () => {
                                                     <span className="truncate max-w-[150px]">View File</span>
                                                   </a>
                                                 )}
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className="h-5 w-5 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    console.log('Delete button clicked for fallback transaction:', fallbackTransactionId);
-                                                    setProofToDelete({ transactionId: fallbackTransactionId, proofUrl: fallbackProof });
-                                                    setDeleteConfirmOpen(true);
-                                                    console.log('Delete confirm dialog should open');
-                                                  }}
-                                                  title="Delete proof"
-                                                >
-                                                  <Trash2 className="h-3 w-3" />
-                                                </Button>
+                                                {!isSharedMode && (
+                                                  <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-5 w-5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                    onClick={(e) => {
+                                                      e.preventDefault();
+                                                      e.stopPropagation();
+                                                      console.log('Delete button clicked for fallback transaction:', fallbackTransactionId);
+                                                      setProofToDelete({ transactionId: fallbackTransactionId, proofUrl: fallbackProof });
+                                                      setDeleteConfirmOpen(true);
+                                                      console.log('Delete confirm dialog should open');
+                                                    }}
+                                                    title="Delete proof"
+                                                  >
+                                                    <Trash2 className="h-3 w-3" />
+                                                  </Button>
+                                                )}
                                               </div>
                                             ) : null}
-                                            <div className="flex gap-1">
-                                              <Input
-                                                value={fallbackProof}
-                                                onChange={(e) => {
-                                                  const newValue = e.target.value;
-                                                  setProofValues(prev => ({
-                                                    ...prev,
-                                                    [fallbackTransactionId]: newValue
-                                                  }));
-                                                }}
-                                                onBlur={(e) => {
-                                                  if (fallbackTransactionId) {
-                                                    const proofValue = e.target.value.trim();
-                                                    updateTransaction.mutate({
-                                                      transactionId: fallbackTransactionId,
-                                                      proof: proofValue
-                                                    });
-                                                  }
-                                                }}
-                                                placeholder="Enter URL or upload file"
-                                                className="h-8 text-xs flex-1"
-                                              />
-                                              <input
-                                                type="file"
-                                                id={`proof-file-${fallbackTransactionId}`}
-                                                className="hidden"
-                                                accept="image/*,application/pdf"
-                                                onChange={(e) => {
-                                                  const file = e.target.files?.[0];
-                                                  if (file && fallbackTransactionId) {
-                                                    handleProofFileUpload(fallbackTransactionId, file);
-                                                  }
-                                                  e.target.value = '';
-                                                }}
-                                              />
-                                              <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                  <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="icon"
-                                                    className="h-8 w-8"
-                                                    disabled={uploadingProofs[fallbackTransactionId]}
-                                                    title="Add proof"
-                                                  >
-                                                    {uploadingProofs[fallbackTransactionId] ? (
-                                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                                    ) : (
-                                                      <Plus className="h-3 w-3" />
-                                                    )}
-                                                  </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                  <DropdownMenuItem
-                                                    onClick={() => {
-                                                      document.getElementById(`proof-file-${fallbackTransactionId}`)?.click();
-                                                    }}
-                                                  >
-                                                    <Upload className="h-4 w-4 mr-2" />
-                                                    Upload a file
-                                                  </DropdownMenuItem>
-                                                  <DropdownMenuItem
-                                                    onClick={() => {
-                                                      setCurrentTransactionId(fallbackTransactionId);
-                                                      setLinkDialogOpen(true);
-                                                    }}
-                                                  >
-                                                    <LinkIcon className="h-4 w-4 mr-2" />
-                                                    Link from invoice or expense
-                                                  </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                              </DropdownMenu>
-                                            </div>
+                                            {!isSharedMode && (
+                                              <div className="flex gap-1">
+                                                <Input
+                                                  value={fallbackProof}
+                                                  onChange={(e) => {
+                                                    const newValue = e.target.value;
+                                                    setProofValues(prev => ({
+                                                      ...prev,
+                                                      [fallbackTransactionId]: newValue
+                                                    }));
+                                                  }}
+                                                  onBlur={(e) => {
+                                                    if (fallbackTransactionId) {
+                                                      const proofValue = e.target.value.trim();
+                                                      updateTransaction.mutate({
+                                                        transactionId: fallbackTransactionId,
+                                                        proof: proofValue
+                                                      });
+                                                    }
+                                                  }}
+                                                  placeholder="Enter URL or upload file"
+                                                  className="h-8 text-xs flex-1"
+                                                />
+                                                <input
+                                                  type="file"
+                                                  id={`proof-file-${fallbackTransactionId}`}
+                                                  className="hidden"
+                                                  accept="image/*,application/pdf"
+                                                  onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file && fallbackTransactionId) {
+                                                      handleProofFileUpload(fallbackTransactionId, file);
+                                                    }
+                                                    e.target.value = '';
+                                                  }}
+                                                />
+                                                <DropdownMenu>
+                                                  <DropdownMenuTrigger asChild>
+                                                    <Button
+                                                      type="button"
+                                                      variant="outline"
+                                                      size="icon"
+                                                      className="h-8 w-8"
+                                                      disabled={uploadingProofs[fallbackTransactionId]}
+                                                      title="Add proof"
+                                                    >
+                                                      {uploadingProofs[fallbackTransactionId] ? (
+                                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                                      ) : (
+                                                        <Plus className="h-3 w-3" />
+                                                      )}
+                                                    </Button>
+                                                  </DropdownMenuTrigger>
+                                                  <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem
+                                                      onClick={() => {
+                                                        document.getElementById(`proof-file-${fallbackTransactionId}`)?.click();
+                                                      }}
+                                                    >
+                                                      <Upload className="h-4 w-4 mr-2" />
+                                                      Upload a file
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                      onClick={() => {
+                                                        setCurrentTransactionId(fallbackTransactionId);
+                                                        setLinkDialogOpen(true);
+                                                      }}
+                                                    >
+                                                      <LinkIcon className="h-4 w-4 mr-2" />
+                                                      Link from invoice or expense
+                                                    </DropdownMenuItem>
+                                                  </DropdownMenuContent>
+                                                </DropdownMenu>
+                                              </div>
+                                            )}
+                                            {isSharedMode && !fallbackProof && (
+                                              <span className="text-muted-foreground text-xs">—</span>
+                                            )}
                                           </div>
                                         );
                                       }
@@ -1661,28 +1862,34 @@ const Transactions = () => {
                               cells.push(
                                 <TableCell key={`note-${rowIdx}`} className="border border-border p-2 text-xs align-top bg-yellow-50/30 min-w-[200px]">
                                   {transactionId ? (
-                                    <Textarea
-                                      value={notesValues[transactionId] || ""}
-                                      onChange={(e) => {
-                                        const newValue = e.target.value;
-                                        setNotesValues(prev => ({
-                                          ...prev,
-                                          [transactionId]: newValue
-                                        }));
-                                      }}
-                                      onBlur={(e) => {
-                                        if (transactionId) {
-                                          const notesValue = e.target.value.trim();
-                                          updateTransaction.mutate({
-                                            transactionId,
-                                            notes: notesValue || null
-                                          });
-                                        }
-                                      }}
-                                      placeholder="Enter note"
-                                      className="min-h-[60px] text-xs resize-y w-full whitespace-pre-wrap break-words"
-                                      rows={notesValues[transactionId] ? Math.max(2, Math.ceil((notesValues[transactionId] || "").split('\n').length)) : 2}
-                                    />
+                                    isSharedMode ? (
+                                      <div className="text-xs whitespace-pre-wrap break-words min-h-[60px] p-2 bg-muted/30 rounded">
+                                        {notesValues[transactionId] || matchingTransaction?.notes || <span className="text-muted-foreground">—</span>}
+                                      </div>
+                                    ) : (
+                                      <Textarea
+                                        value={notesValues[transactionId] || ""}
+                                        onChange={(e) => {
+                                          const newValue = e.target.value;
+                                          setNotesValues(prev => ({
+                                            ...prev,
+                                            [transactionId]: newValue
+                                          }));
+                                        }}
+                                        onBlur={(e) => {
+                                          if (transactionId) {
+                                            const notesValue = e.target.value.trim();
+                                            updateTransaction.mutate({
+                                              transactionId,
+                                              notes: notesValue || null
+                                            });
+                                          }
+                                        }}
+                                        placeholder="Enter note"
+                                        className="min-h-[60px] text-xs resize-y w-full whitespace-pre-wrap break-words"
+                                        rows={notesValues[transactionId] ? Math.max(2, Math.ceil((notesValues[transactionId] || "").split('\n').length)) : 2}
+                                      />
+                                    )
                                   ) : transactions && transactions.length > 0 ? (
                                     (() => {
                                       const sortedTransactions = [...transactions].sort((a, b) => 
@@ -1695,7 +1902,11 @@ const Transactions = () => {
                                       
                                       if (fallbackTransactionId) {
                                         const fallbackNote = notesValues[fallbackTransactionId] || "";
-                                        return (
+                                        return isSharedMode ? (
+                                          <div className="text-xs whitespace-pre-wrap break-words min-h-[60px] p-2 bg-muted/30 rounded">
+                                            {fallbackNote || fallbackTransaction?.notes || <span className="text-muted-foreground">—</span>}
+                                          </div>
+                                        ) : (
                                           <Textarea
                                             value={fallbackNote}
                                             onChange={(e) => {
@@ -1803,12 +2014,29 @@ const Transactions = () => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </DashboardLayout>
+      </Layout>
+    );
+  }
+
+  // Use SharedLayout in shared mode, DashboardLayout otherwise
+  const Layout = isSharedMode ? SharedLayout : DashboardLayout;
+  
+  // In shared mode, don't show the statements list - only show when a statement is selected
+  if (isSharedMode && !selectedStatementId) {
+    return (
+      <Layout>
+        <div className="p-12 text-center">
+          <p className="text-lg font-medium">No statement selected</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            Please use a valid shared link with a statement ID
+          </p>
+        </div>
+      </Layout>
     );
   }
 
   return (
-    <DashboardLayout>
+    <Layout>
       {/* Page Header */}
       <div className="mb-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1865,14 +2093,7 @@ const Transactions = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {statement.statement_period_start && statement.statement_period_end ? (
-                        <div className="text-sm">
-                          {format(new Date(statement.statement_period_start), "MMM d, yyyy")} -{" "}
-                          {format(new Date(statement.statement_period_end), "MMM d, yyyy")}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
+                      <StatementPeriod statementId={statement.id} />
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">
@@ -2060,7 +2281,7 @@ const Transactions = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </DashboardLayout>
+    </Layout>
   );
 };
 
