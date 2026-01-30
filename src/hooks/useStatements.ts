@@ -148,45 +148,66 @@ export function useUpdateBankStatementTransaction() {
     mutationFn: async ({
       transactionId,
       proof,
+      category,
+      notes,
     }: {
       transactionId: string;
-      proof: string;
+      proof?: string;
+      category?: string | null;
+      notes?: string | null;
     }) => {
-      // Get current transaction to preserve existing metadata
-      const { data: currentTransaction, error: fetchError } = await supabase
-        .from("bank_statement_transactions")
-        .select("metadata")
-        .eq("id", transactionId)
-        .single();
+      // Build updates object with only the fields that are provided
+      // This ensures we only update the specified fields and leave others intact
+      const updates: Partial<{
+        proof: string | null;
+        category: string | null;
+        notes: string | null;
+      }> = {};
+      
+      if (proof !== undefined) {
+        updates.proof = proof || null;
+      }
+      if (category !== undefined) {
+        updates.category = category || null;
+      }
+      if (notes !== undefined) {
+        updates.notes = notes || null;
+      }
 
-      if (fetchError) throw fetchError;
-
-      // Update metadata with proof value
-      const currentMetadata = (currentTransaction?.metadata as any) || {};
-      const updatedMetadata = {
-        ...currentMetadata,
-        proof: proof || null,
-      };
+      // Only proceed if there are fields to update
+      if (Object.keys(updates).length === 0) {
+        return; // No updates to make
+      }
 
       const { error } = await supabase
         .from("bank_statement_transactions")
-        .update({
-          metadata: updatedMetadata,
-        })
+        .update(updates)
         .eq("id", transactionId);
 
       if (error) throw error;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["bank-statement-transactions"] });
-      toast({
-        title: "Proof updated",
-        description: "Transaction proof has been saved successfully",
-      });
+      if (variables.proof !== undefined) {
+        toast({
+          title: "Proof updated",
+          description: "Transaction proof has been saved successfully",
+        });
+      } else if (variables.category !== undefined) {
+        toast({
+          title: "Category updated",
+          description: "Transaction category has been saved successfully",
+        });
+      } else if (variables.notes !== undefined) {
+        toast({
+          title: "Note updated",
+          description: "Transaction note has been saved successfully",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to update proof",
+        title: "Failed to update transaction",
         description: error.message,
         variant: "destructive",
       });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
   Link as LinkIcon,
   X,
   File,
+  Filter,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useBankStatements, useBankStatementTransactions, useUpdateBankStatementTransaction } from "@/hooks/useStatements";
@@ -31,7 +32,43 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import * as XLSX from "xlsx";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useExpenses } from "@/hooks/useExpenses";
+import { useReceipts } from "@/hooks/useReceipts";
+import { useCategories, useCreateCategory } from "@/hooks/useCategories";
+import { Plus, Trash2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const Transactions = () => {
   const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
@@ -42,11 +79,30 @@ const Transactions = () => {
   const [loadingExcel, setLoadingExcel] = useState(false);
   const [proofValues, setProofValues] = useState<Record<string, string>>({});
   const [uploadingProofs, setUploadingProofs] = useState<Record<string, boolean>>({});
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [proofToDelete, setProofToDelete] = useState<{ transactionId: string; proofUrl: string } | null>(null);
+  const [deletingProof, setDeletingProof] = useState(false);
   const { data: statements, isLoading } = useBankStatements();
   const { data: transactions, isLoading: transactionsLoading } = useBankStatementTransactions(selectedStatementId);
   const { data: company } = useCompany();
   const { user } = useAuth();
   const updateTransaction = useUpdateBankStatementTransaction();
+  const { data: expenses } = useExpenses();
+  const { data: receipts } = useReceipts();
+  const { data: categories } = useCategories();
+  const createCategory = useCreateCategory();
+  const [newCategoryInputs, setNewCategoryInputs] = useState<Record<string, string>>({});
+  const [showNewCategoryInput, setShowNewCategoryInput] = useState<Record<string, boolean>>({});
+  const [notesValues, setNotesValues] = useState<Record<string, string>>({});
+  
+  // Filter states
+  const [filterCategory, setFilterCategory] = useState<string>("");
+  const [filterModeOfPayment, setFilterModeOfPayment] = useState<string>("");
+  const [filterTransactionType, setFilterTransactionType] = useState<string>(""); // "debit", "credit", or ""
+  const [filterStartDate, setFilterStartDate] = useState<string>("");
+  const [filterEndDate, setFilterEndDate] = useState<string>("");
 
   // Handle file upload for proof
   const handleProofFileUpload = async (transactionId: string, file: File) => {
@@ -77,7 +133,7 @@ const Transactions = () => {
       }
 
       const { error: uploadError } = await supabase.storage
-        .from("receipts")
+        .from("transaction_proofs")
         .upload(filePath, file, {
           contentType: contentType,
           upsert: false,
@@ -86,7 +142,7 @@ const Transactions = () => {
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage
-        .from("receipts")
+        .from("transaction_proofs")
         .getPublicUrl(filePath);
 
       if (!urlData?.publicUrl) {
@@ -121,6 +177,70 @@ const Transactions = () => {
     }
   };
 
+  // Handle proof deletion
+  const handleDeleteProof = async () => {
+    if (!proofToDelete) return;
+
+    const { transactionId, proofUrl } = proofToDelete;
+    setDeletingProof(true);
+
+    try {
+      // Extract file path from URL
+      // URL format: https://[project].supabase.co/storage/v1/object/public/transaction_proofs/[path]
+      // or: https://[project].supabase.co/storage/v1/object/sign/transaction_proofs/[path]
+      let filePath = '';
+      
+      if (proofUrl.includes('/transaction_proofs/')) {
+        // Extract path after transaction_proofs/
+        const pathMatch = proofUrl.match(/transaction_proofs\/(.+)$/);
+        if (pathMatch) {
+          filePath = pathMatch[1];
+        }
+      }
+
+      // Delete file from storage if it's in our bucket
+      if (filePath && proofUrl.includes('transaction_proofs')) {
+        const { error: deleteError } = await supabase.storage
+          .from("transaction_proofs")
+          .remove([filePath]);
+
+        if (deleteError) {
+          console.warn("Failed to delete file from storage:", deleteError);
+          // Continue with database update even if storage delete fails
+        }
+      }
+
+      // Update database to remove proof
+      updateTransaction.mutate({
+        transactionId,
+        proof: ""
+      });
+
+      // Update local state
+      setProofValues(prev => ({
+        ...prev,
+        [transactionId]: ""
+      }));
+
+      setDeleteConfirmOpen(false);
+      setProofToDelete(null);
+
+      toast({
+        title: "Proof deleted",
+        description: "Proof has been removed successfully",
+      });
+    } catch (error: any) {
+      console.error("Delete error:", error);
+      toast({
+        title: "Delete failed",
+        description: error.message || "Failed to delete proof",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingProof(false);
+    }
+  };
+
   const formatCurrency = (amount: number | null) => {
     if (amount === null || amount === undefined) return "—";
     return new Intl.NumberFormat("en-IN", {
@@ -134,6 +254,140 @@ const Transactions = () => {
     if (!description) return "—";
     const parts = String(description).split("/");
     return parts[0]?.trim() || String(description);
+  };
+
+  // Extract unique mode of payment values from transactions
+  const uniqueModeOfPayments = useMemo(() => {
+    if (!transactions || transactions.length === 0) return [];
+    
+    const modes = new Set<string>();
+    transactions.forEach((txn: any) => {
+      if (txn.description) {
+        const mode = extractModeOfPayment(txn.description);
+        // Only add non-empty, non-default values, and exclude "End of the Statement"
+        if (mode && mode !== "—" && mode.toLowerCase() !== "end of the statement") {
+          modes.add(mode);
+        }
+      }
+    });
+    
+    // Convert to array and sort alphabetically
+    return Array.from(modes).sort();
+  }, [transactions]);
+
+  // Extract description from transaction (text after first "/")
+  const extractDescription = (description: string | null) => {
+    if (!description) return "—";
+    const descStr = String(description);
+    const firstSlashIndex = descStr.indexOf("/");
+    if (firstSlashIndex === -1) return "—";
+    return descStr.substring(firstSlashIndex + 1).trim() || "—";
+  };
+
+  // Extract transaction date from metadata in its original format (e.g., "14-May-2025")
+  const getTransactionDateFromMetadataOriginal = (metadata: any): string | null => {
+    if (!metadata) return null;
+    
+    let dateStr: string | null = null;
+    
+    // Try to get from original_data first
+    if (metadata.original_data && metadata.original_data["Transaction Date"]) {
+      dateStr = metadata.original_data["Transaction Date"];
+    } else if (metadata.all_columns && Array.isArray(metadata.all_columns)) {
+      // Fallback: try to get from all_columns
+      const transactionDateColumn = metadata.all_columns.find((col: any) => 
+        col.header && col.header.toLowerCase().includes("transaction date")
+      );
+      if (transactionDateColumn && transactionDateColumn.value) {
+        dateStr = transactionDateColumn.value;
+      }
+    }
+    
+    // Return the original date string format (e.g., "14-May-2025")
+    return dateStr || null;
+  };
+
+  // Extract value date from metadata in its original format (e.g., "14-May-2025")
+  const getValueDateFromMetadataOriginal = (metadata: any): string | null => {
+    if (!metadata) return null;
+    
+    let dateStr: string | null = null;
+    
+    // Try to get from original_data first
+    if (metadata.original_data && metadata.original_data["Value Date"]) {
+      dateStr = metadata.original_data["Value Date"];
+    } else if (metadata.all_columns && Array.isArray(metadata.all_columns)) {
+      // Fallback: try to get from all_columns
+      const valueDateColumn = metadata.all_columns.find((col: any) => 
+        col.header && col.header.toLowerCase().includes("value date")
+      );
+      if (valueDateColumn && valueDateColumn.value) {
+        dateStr = valueDateColumn.value;
+      }
+    }
+    
+    // Return the original date string format (e.g., "14-May-2025")
+    return dateStr || null;
+  };
+
+  // Extract transaction date from metadata and convert to YYYY-MM-DD format
+  const getTransactionDateFromMetadata = (metadata: any): string | null => {
+    if (!metadata) return null;
+    
+    const dateStr = getTransactionDateFromMetadataOriginal(metadata);
+    
+    if (!dateStr) return null;
+    
+    // Parse date format like "14-May-2025" to "YYYY-MM-DD"
+    try {
+      // First try standard Date parsing
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // Continue to manual parsing
+    }
+    
+    // Manual parsing for format "DD-MMM-YYYY" (e.g., "14-May-2025")
+    const parts = String(dateStr).trim().split('-');
+    if (parts.length === 3) {
+      const day = parts[0].trim().padStart(2, '0');
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthName = parts[1].trim();
+      const month = monthNames.findIndex(m => m.toLowerCase() === monthName.toLowerCase());
+      const year = parts[2].trim();
+      
+      if (month >= 0 && day && year) {
+        const monthStr = String(month + 1).padStart(2, '0');
+        return `${year}-${monthStr}-${day}`;
+      }
+    }
+    
+    // Try parsing as "DD/MM/YYYY" or other formats
+    try {
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // Ignore
+    }
+    
+    return null;
+  };
+  
+  // Helper to log transaction dates for debugging
+  const logTransactionDates = (txn: any, index: number) => {
+    if (index < 5) {
+      const metadataDate = getTransactionDateFromMetadata(txn.metadata);
+      console.log(`Transaction ${index}:`, {
+        id: txn.id,
+        transaction_date: txn.transaction_date,
+        metadataDate,
+        metadata: txn.metadata?.original_data?.["Transaction Date"]
+      });
+    }
   };
 
   // Find header row and transaction start row
@@ -295,22 +549,33 @@ const Transactions = () => {
     }
   }, [selectedStatementId, selectedStatement?.file_url]);
 
-  // Initialize proof values from transactions when they load
+  // Initialize proof values and notes from transactions when they load
   useEffect(() => {
     if (transactions && transactions.length > 0) {
       const initialProofs: Record<string, string> = {};
+      const initialNotes: Record<string, string> = {};
       transactions.forEach((txn: any) => {
-        const metadata = txn.metadata as any;
-        // Initialize with existing proof or empty string
-        initialProofs[txn.id] = metadata?.proof || "";
+        // Read from proof column directly
+        initialProofs[txn.id] = txn.proof || "";
+        // Read from notes column
+        initialNotes[txn.id] = txn.notes || "";
       });
       setProofValues(prev => ({
         ...prev,
         ...initialProofs
       }));
-      console.log('Initialized proof values for', transactions.length, 'transactions');
+      setNotesValues(prev => ({
+        ...prev,
+        ...initialNotes
+      }));
+      console.log('Initialized proof and notes values for', transactions.length, 'transactions');
     }
   }, [transactions]);
+
+  // Debug: Log when deleteConfirmOpen changes
+  useEffect(() => {
+    console.log('deleteConfirmOpen state changed to:', deleteConfirmOpen);
+  }, [deleteConfirmOpen]);
 
   if (selectedStatementId && selectedStatement) {
     return (
@@ -354,6 +619,113 @@ const Transactions = () => {
               </div>
             </div>
           </CardHeader>
+        </Card>
+
+        {/* Filter Section */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="h-5 w-5" />
+              Filters
+            </CardTitle>
+            <CardDescription>
+              Filter transactions by category, mode of payment, type, or date range
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              {/* Category Filter */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-category">Category</Label>
+                <Select value={filterCategory || "all"} onValueChange={(value) => setFilterCategory(value === "all" ? "" : value)}>
+                  <SelectTrigger id="filter-category">
+                    <SelectValue placeholder="All categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All categories</SelectItem>
+                    {categories?.map((cat) => (
+                      <SelectItem key={cat.category_id} value={cat.category_name}>
+                        {cat.category_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Mode of Payment Filter */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-mode">Mode of Payment</Label>
+                <Select value={filterModeOfPayment || "all"} onValueChange={(value) => setFilterModeOfPayment(value === "all" ? "" : value)}>
+                  <SelectTrigger id="filter-mode">
+                    <SelectValue placeholder="All modes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All modes</SelectItem>
+                    {uniqueModeOfPayments.map((mode) => (
+                      <SelectItem key={mode} value={mode}>
+                        {mode}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Transaction Type Filter */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-type">Type</Label>
+                <Select value={filterTransactionType || "all"} onValueChange={(value) => setFilterTransactionType(value === "all" ? "" : value)}>
+                  <SelectTrigger id="filter-type">
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All types</SelectItem>
+                    <SelectItem value="debit">Debit</SelectItem>
+                    <SelectItem value="credit">Credit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Start Date Filter */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-start-date">Start Date</Label>
+                <Input
+                  id="filter-start-date"
+                  type="date"
+                  value={filterStartDate}
+                  onChange={(e) => setFilterStartDate(e.target.value)}
+                />
+              </div>
+
+              {/* End Date Filter */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-end-date">End Date</Label>
+                <Input
+                  id="filter-end-date"
+                  type="date"
+                  value={filterEndDate}
+                  onChange={(e) => setFilterEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+            {(filterCategory || filterModeOfPayment || filterTransactionType || filterStartDate || filterEndDate) && (
+              <div className="mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setFilterCategory("");
+                    setFilterModeOfPayment("");
+                    setFilterTransactionType("");
+                    setFilterStartDate("");
+                    setFilterEndDate("");
+                  }}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Clear Filters
+                </Button>
+              </div>
+            )}
+          </CardContent>
         </Card>
 
         <Card className="mt-6">
@@ -422,6 +794,18 @@ const Transactions = () => {
                             Mode of Payment
                           </TableHead>
                         );
+                        // Insert Description column right after Mode of Payment
+                        headers.push(
+                          <TableHead key={`description-header`} className="border border-border p-2 text-left font-semibold min-w-[200px] bg-purple-50">
+                            Description
+                          </TableHead>
+                        );
+                        // Insert Category column right after Description
+                        headers.push(
+                          <TableHead key={`category-header`} className="border border-border p-2 text-left font-semibold min-w-[150px] bg-orange-50">
+                            Category
+                          </TableHead>
+                        );
                       } else {
                         headers.push(
                           <TableHead key={idx} className="border border-border p-2 text-left font-semibold min-w-max whitespace-nowrap">
@@ -434,6 +818,12 @@ const Transactions = () => {
                         headers.push(
                           <TableHead key={`proof-header`} className="border border-border p-2 text-left font-semibold min-w-[100px] bg-green-50">
                             Proof
+                          </TableHead>
+                        );
+                        // Insert Note column right after Proof
+                        headers.push(
+                          <TableHead key={`note-header`} className="border border-border p-2 text-left font-semibold min-w-[200px] bg-yellow-50">
+                            Note
                           </TableHead>
                         );
                       }
@@ -449,41 +839,223 @@ const Transactions = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {excelData.slice(transactionStartRow).map((row: any, rowIdx: number) => {
-                          // Skip completely empty rows
-                          const hasData = row.some((cell: any) => 
-                            cell !== undefined && cell !== null && String(cell).trim() !== ""
-                          );
-                          if (!hasData) return null;
-
-                          // Extract mode of payment from particulars
-                          const particularsValue = particularsColIndex >= 0 ? row[particularsColIndex] : null;
-                          const modeOfPayment = extractModeOfPayment(particularsValue);
-
-                          // Try to find matching transaction from database
-                          // Match by date and amount
-                          const dateColIndex = excelHeaders.findIndex(h => 
-                            String(h || "").toLowerCase().includes("date") && 
-                            !String(h || "").toLowerCase().includes("value")
-                          );
-                          const debitColIndex = excelHeaders.findIndex(h => 
-                            String(h || "").toLowerCase().includes("debit")
-                          );
-                          const creditColIndexForMatch = excelHeaders.findIndex(h => 
-                            String(h || "").toLowerCase().includes("credit")
-                          );
+                        {(() => {
+                          // Pre-filter transactions by date range and transaction type if filters are set
+                          // Use Transaction Date from metadata column
+                          let transactionsToCheck = transactions || [];
                           
-                          // Extract row data for matching
-                          const rowDate = dateColIndex >= 0 ? row[dateColIndex] : null;
-                          const rowDebit = debitColIndex >= 0 ? parseFloat(String(row[debitColIndex] || "").replace(/[^0-9.-]/g, "")) : 0;
-                          const rowCredit = creditColIndexForMatch >= 0 ? parseFloat(String(row[creditColIndexForMatch] || "").replace(/[^0-9.-]/g, "")) : 0;
-                          
-                          let matchingTransaction: any = null;
-                          if (transactions && transactions.length > 0) {
+                          // Apply date filter
+                          if (filterStartDate || filterEndDate) {
+                            // Debug: log first few transactions before filtering
+                            if (transactions && transactions.length > 0) {
+                              console.log('Before filtering - sample transactions:');
+                              transactions.slice(0, 5).forEach((txn: any, idx: number) => {
+                                logTransactionDates(txn, idx);
+                              });
+                            }
                             
-                            // Try to match transaction - use row index as fallback if exact match fails
-                            // First try exact match by date and amount
-                            matchingTransaction = transactions.find((txn: any) => {
+                            transactionsToCheck = transactionsToCheck.filter((txn: any) => {
+                              // Get transaction date from metadata
+                              const txnDateStr = getTransactionDateFromMetadata(txn.metadata);
+                              
+                              // If no date found in metadata, fallback to transaction_date
+                              const dateToCompare = txnDateStr || txn.transaction_date;
+                              
+                              if (!dateToCompare) {
+                                // If we can't get a date and filters are set, exclude this transaction
+                                return false;
+                              }
+                              
+                              // Compare dates as strings (YYYY-MM-DD format)
+                              const inDateRange = (!filterStartDate || dateToCompare >= filterStartDate) &&
+                                                 (!filterEndDate || dateToCompare <= filterEndDate);
+                              
+                              return inDateRange;
+                            });
+                            
+                            // Debug: log filtered transactions count and sample
+                            console.log('Date filter applied:', {
+                              filterStartDate,
+                              filterEndDate,
+                              totalTransactions: transactions?.length || 0,
+                              transactionsInRange: transactionsToCheck.length
+                            });
+                            
+                            if (transactionsToCheck.length > 0) {
+                              console.log('Sample transactions in range:');
+                              transactionsToCheck.slice(0, 5).forEach((txn: any, idx: number) => {
+                                logTransactionDates(txn, idx);
+                              });
+                            }
+                          }
+                          
+                          // Apply transaction type filter
+                          if (filterTransactionType) {
+                            transactionsToCheck = transactionsToCheck.filter((txn: any) => {
+                              const transactionType = txn.transaction_type?.toLowerCase() || "";
+                              const filterType = filterTransactionType.toLowerCase();
+                              return transactionType === filterType;
+                            });
+                            
+                            console.log('Transaction type filter applied:', {
+                              filterType: filterTransactionType,
+                              transactionsAfterTypeFilter: transactionsToCheck.length
+                            });
+                          }
+                          
+                          return excelData.slice(transactionStartRow)
+                            .filter((row: any, rowIdx: number) => {
+                            // Skip completely empty rows
+                            const hasData = row.some((cell: any) => 
+                              cell !== undefined && cell !== null && String(cell).trim() !== ""
+                            );
+                            if (!hasData) return false;
+
+                            // Extract mode of payment from particulars for filtering
+                            const particularsValue = particularsColIndex >= 0 ? row[particularsColIndex] : null;
+                            const modeOfPayment = extractModeOfPayment(particularsValue);
+
+                            // Match transaction for filtering
+                            const dateColIndex = excelHeaders.findIndex(h => 
+                              String(h || "").toLowerCase().includes("date") && 
+                              !String(h || "").toLowerCase().includes("value")
+                            );
+                            const debitColIndex = excelHeaders.findIndex(h => 
+                              String(h || "").toLowerCase().includes("debit")
+                            );
+                            const creditColIndexForMatch = excelHeaders.findIndex(h => 
+                              String(h || "").toLowerCase().includes("credit")
+                            );
+                            
+                            const rowDate = dateColIndex >= 0 ? row[dateColIndex] : null;
+                            const rowDebit = debitColIndex >= 0 ? parseFloat(String(row[debitColIndex] || "").replace(/[^0-9.-]/g, "")) : 0;
+                            const rowCredit = creditColIndexForMatch >= 0 ? parseFloat(String(row[creditColIndexForMatch] || "").replace(/[^0-9.-]/g, "")) : 0;
+                            
+                            // Now try to find a matching transaction from the filtered list
+                            let matchingTransaction: any = null;
+                            if (transactionsToCheck.length > 0) {
+                              matchingTransaction = transactionsToCheck.find((txn: any) => {
+                                try {
+                                  const txnDate = new Date(txn.transaction_date).toISOString().split('T')[0];
+                                  let rowDateStr = null;
+                                  if (rowDate) {
+                                    if (typeof rowDate === 'number') {
+                                      const excelEpoch = new Date(1899, 11, 30);
+                                      const date = new Date(excelEpoch.getTime() + rowDate * 86400000);
+                                      rowDateStr = date.toISOString().split('T')[0];
+                                    } else {
+                                      rowDateStr = new Date(rowDate).toISOString().split('T')[0];
+                                    }
+                                  }
+                                  const dateMatch = rowDateStr && txnDate === rowDateStr;
+                                  const amountMatch = (rowDebit > 0 && Math.abs(txn.debit_amount - rowDebit) < 0.01) ||
+                                                    (rowCredit > 0 && Math.abs(txn.credit_amount - rowCredit) < 0.01);
+                                  return dateMatch && amountMatch;
+                                } catch (e) {
+                                  return false;
+                                }
+                              });
+                              
+                              // Fallback: match by row index if exact match fails
+                              if (!matchingTransaction) {
+                                const sortedTransactions = [...transactionsToCheck].sort((a, b) => 
+                                  new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+                                );
+                                const originalRowIdx = excelData.slice(transactionStartRow).indexOf(row);
+                                if (originalRowIdx >= 0 && originalRowIdx < sortedTransactions.length) {
+                                  matchingTransaction = sortedTransactions[originalRowIdx];
+                                }
+                              }
+                            }
+                            
+                            // If date filter is set, we must have a matching transaction in the date range
+                            if (filterStartDate || filterEndDate) {
+                              // If no transactions in the date range, exclude this row
+                              if (transactionsToCheck.length === 0) {
+                                return false;
+                              }
+                              // If we have transactions in range but couldn't match this row to any of them, exclude it
+                              if (!matchingTransaction) {
+                                return false;
+                              }
+                            }
+
+                            // Apply filters
+                            // Category filter
+                            if (filterCategory && matchingTransaction?.category !== filterCategory) {
+                              return false;
+                            }
+
+                            // Mode of payment filter - exact match with transaction description
+                            if (filterModeOfPayment) {
+                              // Must have a matching transaction to check mode of payment
+                              if (!matchingTransaction) {
+                                return false;
+                              }
+                              // Extract mode of payment from transaction description
+                              const transactionModeOfPayment = extractModeOfPayment(matchingTransaction.description);
+                              // Compare filter value with extracted mode of payment (case-insensitive)
+                              if (transactionModeOfPayment.toLowerCase() !== filterModeOfPayment.toLowerCase()) {
+                                return false;
+                              }
+                            }
+
+                            // Transaction type filter - compare with transaction_type field from database
+                            if (filterTransactionType) {
+                              // Must have a matching transaction to check transaction_type
+                              if (!matchingTransaction) {
+                                return false;
+                              }
+                              // Compare filter value with transaction_type field (case-insensitive)
+                              const transactionType = matchingTransaction.transaction_type?.toLowerCase() || "";
+                              const filterType = filterTransactionType.toLowerCase();
+                              if (transactionType !== filterType) {
+                                return false;
+                              }
+                            }
+
+                            // Date range filter is already applied above by filtering transactionsToCheck
+                            // If we have a matching transaction, it's already in the date range
+                            // If we don't have a match but transactionsToCheck has items, the row might still match
+                            // (handled by the check above)
+
+                            return true;
+                          })
+                          .map((row: any, filteredRowIdx: number) => {
+                            // Get the original row index for matching
+                            const originalRows = excelData.slice(transactionStartRow);
+                            const rowIdx = originalRows.findIndex((r) => r === row);
+
+                            // Skip completely empty rows (already filtered, but keep for safety)
+                            const hasData = row.some((cell: any) => 
+                              cell !== undefined && cell !== null && String(cell).trim() !== ""
+                            );
+                            if (!hasData) return null;
+
+                            // Try to find matching transaction from database first
+                            // Match by date and amount
+                            const dateColIndex = excelHeaders.findIndex(h => 
+                              String(h || "").toLowerCase().includes("date") && 
+                              !String(h || "").toLowerCase().includes("value")
+                            );
+                            const debitColIndex = excelHeaders.findIndex(h => 
+                              String(h || "").toLowerCase().includes("debit")
+                            );
+                            const creditColIndexForMatch = excelHeaders.findIndex(h => 
+                              String(h || "").toLowerCase().includes("credit")
+                            );
+                            
+                            // Extract row data for matching
+                            const rowDate = dateColIndex >= 0 ? row[dateColIndex] : null;
+                            const rowDebit = debitColIndex >= 0 ? parseFloat(String(row[debitColIndex] || "").replace(/[^0-9.-]/g, "")) : 0;
+                            const rowCredit = creditColIndexForMatch >= 0 ? parseFloat(String(row[creditColIndexForMatch] || "").replace(/[^0-9.-]/g, "")) : 0;
+                            
+                            // Use the pre-filtered transactionsToCheck for matching
+                            let matchingTransaction: any = null;
+                            if (transactionsToCheck.length > 0) {
+                              // Try to match transaction - use row index as fallback if exact match fails
+                              // First try exact match by date and amount
+                              matchingTransaction = transactionsToCheck.find((txn: any) => {
                               try {
                                 const txnDate = new Date(txn.transaction_date).toISOString().split('T')[0];
                                 let rowDateStr = null;
@@ -504,32 +1076,49 @@ const Transactions = () => {
                               } catch (e) {
                                 return false;
                               }
-                            });
-                            
-                            // Fallback: match by row index if we have transactions in order
-                            if (!matchingTransaction && transactions.length > rowIdx) {
-                              // Try to match by position in the list (assuming transactions are in the same order)
-                              const sortedTransactions = [...transactions].sort((a, b) => 
-                                new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
-                              );
-                              if (rowIdx < sortedTransactions.length) {
-                                matchingTransaction = sortedTransactions[rowIdx];
+                              });
+                              
+                              // Fallback: match by row index if we have transactions in order
+                              if (!matchingTransaction && transactionsToCheck.length > rowIdx) {
+                                // Try to match by position in the list (assuming transactions are in the same order)
+                                const sortedTransactions = [...transactionsToCheck].sort((a, b) => 
+                                  new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+                                );
+                                if (rowIdx < sortedTransactions.length) {
+                                  matchingTransaction = sortedTransactions[rowIdx];
+                                }
                               }
                             }
-                          }
 
                           const transactionId = matchingTransaction?.id;
                           const currentProof = transactionId ? (proofValues[transactionId] || "") : "";
                           
+                          // Extract mode of payment from particulars
+                          // Use transaction description if available, otherwise use Excel cell
+                          const particularsValue = matchingTransaction?.description 
+                            ? matchingTransaction.description 
+                            : (particularsColIndex >= 0 ? row[particularsColIndex] : null);
+                          const modeOfPayment = extractModeOfPayment(particularsValue);
+                          
+                          // Get description directly from the transaction's description field
+                          // Extract everything after the first '/' from the description
+                          const transactionDescription = matchingTransaction?.description || null;
+                          const extractedDescription = extractDescription(transactionDescription);
+                          
                           // Debug: Log first few rows to verify matching
-                          if (rowIdx < 3 && transactions && transactions.length > 0) {
+                          if (rowIdx < 3 && transactionsToCheck && transactionsToCheck.length > 0) {
+                            const matchedDate = matchingTransaction ? getTransactionDateFromMetadata(matchingTransaction.metadata) || matchingTransaction.transaction_date : null;
                             console.log(`Row ${rowIdx} matching:`, {
                               hasTransaction: !!matchingTransaction,
                               transactionId,
-                              transactionsAvailable: transactions.length,
+                              transactionsAvailable: transactionsToCheck.length,
+                              totalTransactions: transactions?.length || 0,
+                              matchedTransactionDate: matchedDate,
                               rowDate: dateColIndex >= 0 ? row[dateColIndex] : null,
                               rowDebit,
-                              rowCredit
+                              rowCredit,
+                              filterStartDate,
+                              filterEndDate
                             });
                           }
                           
@@ -539,12 +1128,75 @@ const Transactions = () => {
                               transactionId,
                               hasTransaction: !!matchingTransaction,
                               currentProof,
-                              transactionsCount: transactions?.length
+                              transactionsCount: transactionsToCheck?.length || 0,
+                              totalTransactionsCount: transactions?.length || 0
                             });
                           }
 
                           // Build data row with Proof inserted after Credit and Particulars replaced with Mode of Payment
                           const cells: JSX.Element[] = [];
+                          
+                          // Helper function to get transaction value for a column
+                          const getTransactionValueForColumn = (headerName: string): any => {
+                            if (!matchingTransaction) return null;
+                            
+                            const headerLower = String(headerName || "").toLowerCase().trim();
+                            
+                            // Map Excel headers to transaction fields
+                            // Prioritize "transaction date" explicitly - check multiple variations
+                            if (headerLower.includes("transaction date") || 
+                                headerLower === "transaction date" ||
+                                (headerLower.includes("transaction") && headerLower.includes("date"))) {
+                              return matchingTransaction.transaction_date ? format(new Date(matchingTransaction.transaction_date), "dd-MMM-yyyy") : null;
+                            }
+                            // Check for "value date" explicitly - extract from metadata
+                            if (headerLower.includes("value date") || 
+                                headerLower === "value date" ||
+                                (headerLower.includes("value") && headerLower.includes("date"))) {
+                              // Extract Value Date from metadata column in its original format
+                              const metadataValueDate = getValueDateFromMetadataOriginal(matchingTransaction.metadata);
+                              // Use metadata date if available (already in original format like "14-May-2025")
+                              if (metadataValueDate) {
+                                return metadataValueDate;
+                              } else if (matchingTransaction.value_date) {
+                                // Fallback to value_date if metadata doesn't have date
+                                return format(new Date(matchingTransaction.value_date), "dd-MMM-yyyy");
+                              } else {
+                                return null;
+                              }
+                            }
+                            // Fallback: if header is just "date" (and we haven't matched value date above)
+                            // Check if this is the first date column by checking the column index
+                            // We'll assume the first date column is transaction date
+                            if (headerLower === "date" || (headerLower.includes("date") && !headerLower.includes("value"))) {
+                              // Use transaction_date for any date column that's not value date
+                              return matchingTransaction.transaction_date ? format(new Date(matchingTransaction.transaction_date), "dd-MMM-yyyy") : null;
+                            }
+                            if (headerLower.includes("debit")) {
+                              return matchingTransaction.debit_amount !== null && matchingTransaction.debit_amount !== undefined 
+                                ? formatCurrency(matchingTransaction.debit_amount) 
+                                : null;
+                            }
+                            if (headerLower.includes("credit")) {
+                              return matchingTransaction.credit_amount !== null && matchingTransaction.credit_amount !== undefined 
+                                ? formatCurrency(matchingTransaction.credit_amount) 
+                                : null;
+                            }
+                            if (headerLower.includes("balance")) {
+                              return matchingTransaction.balance !== null && matchingTransaction.balance !== undefined 
+                                ? formatCurrency(matchingTransaction.balance) 
+                                : null;
+                            }
+                            if (headerLower.includes("reference") || headerLower.includes("ref")) {
+                              return matchingTransaction.reference_number || null;
+                            }
+                            if (headerLower.includes("cheque")) {
+                              return matchingTransaction.reference_number || null;
+                            }
+                            
+                            return null;
+                          };
+                          
                           row.forEach((cell: any, cellIdx: number) => {
                             // Replace Particulars column value with extracted Mode of Payment
                             const isParticularsColumn = cellIdx === particularsColIndex && particularsColIndex >= 0;
@@ -558,13 +1210,183 @@ const Transactions = () => {
                                   <div className="font-medium">{modeOfPayment}</div>
                                 </TableCell>
                               );
+                              // Insert Description column right after Mode of Payment
+                              cells.push(
+                                <TableCell 
+                                  key={`description-${cellIdx}`} 
+                                  className="border border-border p-2 text-xs align-top break-words bg-purple-50/30"
+                                >
+                                  <div className="break-words">{extractedDescription}</div>
+                                </TableCell>
+                              );
+                              // Insert Category column right after Description
+                              cells.push(
+                                <TableCell 
+                                  key={`category-${cellIdx}`} 
+                                  className="border border-border p-2 text-xs align-top break-words bg-orange-50/30"
+                                >
+                                  {transactionId ? (
+                                    <div className="min-w-[120px]">
+                                      {showNewCategoryInput[transactionId] ? (
+                                        <div className="flex gap-1">
+                                          <Input
+                                            value={newCategoryInputs[transactionId] || ""}
+                                            onChange={(e) => {
+                                              setNewCategoryInputs(prev => ({
+                                                ...prev,
+                                                [transactionId]: e.target.value
+                                              }));
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                const categoryName = newCategoryInputs[transactionId]?.trim();
+                                                if (categoryName) {
+                                                  createCategory.mutate(categoryName, {
+                                                    onSuccess: (newCategory) => {
+                                                      const finalCategoryName = (newCategory as any)?.category_name || categoryName.trim();
+                                                      updateTransaction.mutate({
+                                                        transactionId,
+                                                        category: finalCategoryName
+                                                      });
+                                                      setShowNewCategoryInput(prev => ({
+                                                        ...prev,
+                                                        [transactionId]: false
+                                                      }));
+                                                      setNewCategoryInputs(prev => {
+                                                        const updated = { ...prev };
+                                                        delete updated[transactionId];
+                                                        return updated;
+                                                      });
+                                                    }
+                                                  });
+                                                }
+                                              } else if (e.key === 'Escape') {
+                                                setShowNewCategoryInput(prev => ({
+                                                  ...prev,
+                                                  [transactionId]: false
+                                                }));
+                                                setNewCategoryInputs(prev => {
+                                                  const updated = { ...prev };
+                                                  delete updated[transactionId];
+                                                  return updated;
+                                                });
+                                              }
+                                            }}
+                                            placeholder="Enter category name"
+                                            className="h-7 text-xs"
+                                            autoFocus
+                                          />
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7"
+                                            onClick={() => {
+                                              setShowNewCategoryInput(prev => ({
+                                                ...prev,
+                                                [transactionId]: false
+                                              }));
+                                              setNewCategoryInputs(prev => {
+                                                const updated = { ...prev };
+                                                delete updated[transactionId];
+                                                return updated;
+                                              });
+                                            }}
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <Select
+                                          value={matchingTransaction?.category || ""}
+                                          onValueChange={(value) => {
+                                            if (value === "other") {
+                                              setShowNewCategoryInput(prev => ({
+                                                ...prev,
+                                                [transactionId]: true
+                                              }));
+                                            } else {
+                                              updateTransaction.mutate({
+                                                transactionId,
+                                                category: value || null
+                                              });
+                                            }
+                                          }}
+                                        >
+                                          <SelectTrigger className="h-7 text-xs">
+                                            <SelectValue placeholder="Select category" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {categories?.map((cat) => (
+                                              <SelectItem key={cat.category_id} value={cat.category_name}>
+                                                {cat.category_name}
+                                              </SelectItem>
+                                            ))}
+                                            <SelectItem value="other">Other</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground text-xs">—</span>
+                                  )}
+                                </TableCell>
+                              );
                             } else {
+                              // For other columns, use transaction data if available, otherwise use Excel cell data
+                              const headerName = excelHeaders[cellIdx] || "";
+                              
+                              // Find Value Date column index
+                              const valueDateColIndex = excelHeaders.findIndex(h => 
+                                String(h || "").toLowerCase().includes("value date")
+                              );
+                              
+                              // Special handling for Transaction Date column - always use transaction data if available
+                              // Check if this is the Transaction Date column by comparing with dateColIndex
+                              const isTransactionDateColumn = cellIdx === dateColIndex && dateColIndex >= 0;
+                              // Special handling for Value Date column - always use transaction data if available
+                              const isValueDateColumn = cellIdx === valueDateColIndex && valueDateColIndex >= 0;
+                              
+                              let transactionValue = null;
+                              if (matchingTransaction) {
+                                if (isTransactionDateColumn) {
+                                  // Extract Transaction Date from metadata column in its original format
+                                  const metadataDate = getTransactionDateFromMetadataOriginal(matchingTransaction.metadata);
+                                  // Use metadata date if available (already in original format like "14-May-2025")
+                                  if (metadataDate) {
+                                    transactionValue = metadataDate;
+                                  } else if (matchingTransaction.transaction_date) {
+                                    // Fallback to transaction_date if metadata doesn't have date
+                                    transactionValue = format(new Date(matchingTransaction.transaction_date), "dd-MMM-yyyy");
+                                  } else {
+                                    transactionValue = null;
+                                  }
+                                } else if (isValueDateColumn) {
+                                  // Extract Value Date from metadata column in its original format
+                                  const metadataValueDate = getValueDateFromMetadataOriginal(matchingTransaction.metadata);
+                                  // Use metadata date if available (already in original format like "14-May-2025")
+                                  if (metadataValueDate) {
+                                    transactionValue = metadataValueDate;
+                                  } else if (matchingTransaction.value_date) {
+                                    // Fallback to value_date if metadata doesn't have date
+                                    transactionValue = format(new Date(matchingTransaction.value_date), "dd-MMM-yyyy");
+                                  } else {
+                                    transactionValue = null;
+                                  }
+                                } else {
+                                  // Use helper function for other columns
+                                  transactionValue = getTransactionValueForColumn(headerName);
+                                }
+                              }
+                              
+                              // Always prefer transaction data when available
+                              const displayValue = transactionValue !== null ? transactionValue : (cell !== undefined && cell !== null ? String(cell) : '—');
+                              
                               cells.push(
                                 <TableCell 
                                   key={cellIdx} 
                                   className="border border-border p-2 text-xs align-top break-words"
                                 >
-                                  {cell !== undefined && cell !== null ? String(cell) : '—'}
+                                  {displayValue}
                                 </TableCell>
                               );
                             }
@@ -600,20 +1422,18 @@ const Transactions = () => {
                                           <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="h-5 w-5"
-                                            onClick={() => {
-                                              setProofValues(prev => ({
-                                                ...prev,
-                                                [transactionId]: ""
-                                              }));
-                                              updateTransaction.mutate({
-                                                transactionId,
-                                                proof: ""
-                                              });
+                                            className="h-5 w-5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              console.log('Delete button clicked for transaction:', transactionId);
+                                              setProofToDelete({ transactionId, proofUrl: currentProof });
+                                              setDeleteConfirmOpen(true);
+                                              console.log('Delete confirm dialog should open');
                                             }}
-                                            title="Clear proof"
+                                            title="Delete proof"
                                           >
-                                            <X className="h-3 w-3" />
+                                            <Trash2 className="h-3 w-3" />
                                           </Button>
                                         </div>
                                       ) : null}
@@ -654,23 +1474,43 @@ const Transactions = () => {
                                             e.target.value = '';
                                           }}
                                         />
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="icon"
-                                          className="h-8 w-8"
-                                          onClick={() => {
-                                            document.getElementById(`proof-file-${transactionId}`)?.click();
-                                          }}
-                                          disabled={uploadingProofs[transactionId]}
-                                          title="Upload file"
-                                        >
-                                          {uploadingProofs[transactionId] ? (
-                                            <Loader2 className="h-3 w-3 animate-spin" />
-                                          ) : (
-                                            <Upload className="h-3 w-3" />
-                                          )}
-                                        </Button>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="icon"
+                                              className="h-8 w-8"
+                                              disabled={uploadingProofs[transactionId]}
+                                              title="Add proof"
+                                            >
+                                              {uploadingProofs[transactionId] ? (
+                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                              ) : (
+                                                <Plus className="h-3 w-3" />
+                                              )}
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end">
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                document.getElementById(`proof-file-${transactionId}`)?.click();
+                                              }}
+                                            >
+                                              <Upload className="h-4 w-4 mr-2" />
+                                              Upload a file
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                setCurrentTransactionId(transactionId);
+                                                setLinkDialogOpen(true);
+                                              }}
+                                            >
+                                              <LinkIcon className="h-4 w-4 mr-2" />
+                                              Link from invoice or expense
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
                                       </div>
                                     </div>
                                   ) : transactions && transactions.length > 0 ? (
@@ -715,20 +1555,18 @@ const Transactions = () => {
                                                 <Button
                                                   variant="ghost"
                                                   size="icon"
-                                                  className="h-5 w-5"
-                                                  onClick={() => {
-                                                    setProofValues(prev => ({
-                                                      ...prev,
-                                                      [fallbackTransactionId]: ""
-                                                    }));
-                                                    updateTransaction.mutate({
-                                                      transactionId: fallbackTransactionId,
-                                                      proof: ""
-                                                    });
+                                                  className="h-5 w-5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                  onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    console.log('Delete button clicked for fallback transaction:', fallbackTransactionId);
+                                                    setProofToDelete({ transactionId: fallbackTransactionId, proofUrl: fallbackProof });
+                                                    setDeleteConfirmOpen(true);
+                                                    console.log('Delete confirm dialog should open');
                                                   }}
-                                                  title="Clear proof"
+                                                  title="Delete proof"
                                                 >
-                                                  <X className="h-3 w-3" />
+                                                  <Trash2 className="h-3 w-3" />
                                                 </Button>
                                               </div>
                                             ) : null}
@@ -767,23 +1605,43 @@ const Transactions = () => {
                                                   e.target.value = '';
                                                 }}
                                               />
-                                              <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-8 w-8"
-                                                onClick={() => {
-                                                  document.getElementById(`proof-file-${fallbackTransactionId}`)?.click();
-                                                }}
-                                                disabled={uploadingProofs[fallbackTransactionId]}
-                                                title="Upload file"
-                                              >
-                                                {uploadingProofs[fallbackTransactionId] ? (
-                                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                                ) : (
-                                                  <Upload className="h-3 w-3" />
-                                                )}
-                                              </Button>
+                                              <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                  <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="icon"
+                                                    className="h-8 w-8"
+                                                    disabled={uploadingProofs[fallbackTransactionId]}
+                                                    title="Add proof"
+                                                  >
+                                                    {uploadingProofs[fallbackTransactionId] ? (
+                                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                                    ) : (
+                                                      <Plus className="h-3 w-3" />
+                                                    )}
+                                                  </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                  <DropdownMenuItem
+                                                    onClick={() => {
+                                                      document.getElementById(`proof-file-${fallbackTransactionId}`)?.click();
+                                                    }}
+                                                  >
+                                                    <Upload className="h-4 w-4 mr-2" />
+                                                    Upload a file
+                                                  </DropdownMenuItem>
+                                                  <DropdownMenuItem
+                                                    onClick={() => {
+                                                      setCurrentTransactionId(fallbackTransactionId);
+                                                      setLinkDialogOpen(true);
+                                                    }}
+                                                  >
+                                                    <LinkIcon className="h-4 w-4 mr-2" />
+                                                    Link from invoice or expense
+                                                  </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                              </DropdownMenu>
                                             </div>
                                           </div>
                                         );
@@ -799,15 +1657,102 @@ const Transactions = () => {
                                   )}
                                 </TableCell>
                               );
+                              // Insert Note column right after Proof
+                              cells.push(
+                                <TableCell key={`note-${rowIdx}`} className="border border-border p-2 text-xs align-top bg-yellow-50/30 min-w-[200px]">
+                                  {transactionId ? (
+                                    <Textarea
+                                      value={notesValues[transactionId] || ""}
+                                      onChange={(e) => {
+                                        const newValue = e.target.value;
+                                        setNotesValues(prev => ({
+                                          ...prev,
+                                          [transactionId]: newValue
+                                        }));
+                                      }}
+                                      onBlur={(e) => {
+                                        if (transactionId) {
+                                          const notesValue = e.target.value.trim();
+                                          updateTransaction.mutate({
+                                            transactionId,
+                                            notes: notesValue || null
+                                          });
+                                        }
+                                      }}
+                                      placeholder="Enter note"
+                                      className="min-h-[60px] text-xs resize-y w-full whitespace-pre-wrap break-words"
+                                      rows={notesValues[transactionId] ? Math.max(2, Math.ceil((notesValues[transactionId] || "").split('\n').length)) : 2}
+                                    />
+                                  ) : transactions && transactions.length > 0 ? (
+                                    (() => {
+                                      const sortedTransactions = [...transactions].sort((a, b) => 
+                                        new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+                                      );
+                                      const fallbackTransaction = rowIdx >= 0 && rowIdx < sortedTransactions.length 
+                                        ? sortedTransactions[rowIdx] 
+                                        : null;
+                                      const fallbackTransactionId = fallbackTransaction?.id;
+                                      
+                                      if (fallbackTransactionId) {
+                                        const fallbackNote = notesValues[fallbackTransactionId] || "";
+                                        return (
+                                          <Textarea
+                                            value={fallbackNote}
+                                            onChange={(e) => {
+                                              const newValue = e.target.value;
+                                              setNotesValues(prev => ({
+                                                ...prev,
+                                                [fallbackTransactionId]: newValue
+                                              }));
+                                            }}
+                                            onBlur={(e) => {
+                                              if (fallbackTransactionId) {
+                                                const notesValue = e.target.value.trim();
+                                                updateTransaction.mutate({
+                                                  transactionId: fallbackTransactionId,
+                                                  notes: notesValue || null
+                                                });
+                                              }
+                                            }}
+                                            placeholder="Enter note"
+                                            className="min-h-[60px] text-xs resize-y w-full whitespace-pre-wrap break-words"
+                                            rows={fallbackNote ? Math.max(2, Math.ceil(fallbackNote.split('\n').length)) : 2}
+                                          />
+                                        );
+                                      }
+                                      return <span className="text-muted-foreground text-xs">—</span>;
+                                    })()
+                                  ) : (
+                                    <span className="text-muted-foreground text-xs">—</span>
+                                  )}
+                                </TableCell>
+                              );
                             }
                           });
 
+                          // Check if transaction has no category - mark with red color
+                          // Also check fallback transaction if no exact match
+                          let transactionForHighlight = matchingTransaction;
+                          if (!transactionForHighlight && transactions && transactions.length > 0) {
+                            const sortedTransactions = [...transactions].sort((a, b) => 
+                              new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+                            );
+                            if (rowIdx >= 0 && rowIdx < sortedTransactions.length) {
+                              transactionForHighlight = sortedTransactions[rowIdx];
+                            }
+                          }
+                          const hasNoCategory = transactionForHighlight && !transactionForHighlight.category;
+                          const rowClassName = hasNoCategory 
+                            ? "hover:bg-muted/50 bg-red-50/50 border-l-4 border-l-red-500" 
+                            : "hover:bg-muted/50";
+
                           return (
-                            <TableRow key={rowIdx} className="hover:bg-muted/50">
+                            <TableRow key={rowIdx} className={rowClassName}>
                               {cells}
                             </TableRow>
                           );
-                        })}
+                          })
+                        })()}
                       </TableBody>
                     </Table>
                   );
@@ -826,6 +1771,38 @@ const Transactions = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Delete Proof Confirmation Dialog */}
+        <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => {
+          console.log('AlertDialog onOpenChange called with:', open);
+          setDeleteConfirmOpen(open);
+        }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Proof</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this proof? This will permanently remove the file from storage and clear the proof from this transaction. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deletingProof}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteProof}
+                disabled={deletingProof}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deletingProof ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete"
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DashboardLayout>
     );
   }
@@ -941,6 +1918,148 @@ const Transactions = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Link Proof Dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Link Proof from Invoice or Expense</DialogTitle>
+            <DialogDescription>
+              Select a file from an existing invoice or expense to link as proof.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            {/* Receipts Section */}
+            <div>
+              <h4 className="font-semibold mb-2">Receipts</h4>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {receipts && receipts.length > 0 ? (
+                  receipts
+                    .filter((receipt) => receipt.file_url)
+                    .map((receipt) => (
+                      <div
+                        key={receipt.id}
+                        className="flex items-center justify-between p-2 border rounded hover:bg-muted cursor-pointer"
+                        onClick={() => {
+                          if (currentTransactionId && receipt.file_url) {
+                            setProofValues(prev => ({
+                              ...prev,
+                              [currentTransactionId]: receipt.file_url || ""
+                            }));
+                            updateTransaction.mutate({
+                              transactionId: currentTransactionId,
+                              proof: receipt.file_url || ""
+                            });
+                            setLinkDialogOpen(false);
+                            setCurrentTransactionId(null);
+                            toast({
+                              title: "Proof linked",
+                              description: "Proof has been linked successfully.",
+                            });
+                          }
+                        }}
+                      >
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{receipt.vendor}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {receipt.receipt_number} • {format(new Date(receipt.receipt_date), "MMM d, yyyy")}
+                          </p>
+                        </div>
+                        <File className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No receipts with files found</p>
+                )}
+              </div>
+            </div>
+
+            {/* Expenses Section */}
+            <div>
+              <h4 className="font-semibold mb-2">Expenses</h4>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {expenses && expenses.length > 0 ? (
+                  expenses
+                    .filter((expense) => {
+                      // Check if expense has a receipt with file_url
+                      return expense.receipt_id;
+                    })
+                    .map((expense) => {
+                      // Find the receipt for this expense
+                      const receipt = receipts?.find((r) => r.id === expense.receipt_id);
+                      if (!receipt?.file_url) return null;
+                      
+                      return (
+                        <div
+                          key={expense.id}
+                          className="flex items-center justify-between p-2 border rounded hover:bg-muted cursor-pointer"
+                          onClick={() => {
+                            if (currentTransactionId && receipt.file_url) {
+                              setProofValues(prev => ({
+                                ...prev,
+                                [currentTransactionId]: receipt.file_url || ""
+                              }));
+                              updateTransaction.mutate({
+                                transactionId: currentTransactionId,
+                                proof: receipt.file_url || ""
+                              });
+                              setLinkDialogOpen(false);
+                              setCurrentTransactionId(null);
+                              toast({
+                                title: "Proof linked",
+                                description: "Proof has been linked successfully.",
+                              });
+                            }
+                          }}
+                        >
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{expense.description}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(expense.expense_date), "MMM d, yyyy")} • {formatCurrency(expense.amount)}
+                            </p>
+                          </div>
+                          <File className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      );
+                    })
+                    .filter(Boolean)
+                ) : (
+                  <p className="text-sm text-muted-foreground">No expenses with receipt files found</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Proof Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Proof</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this proof? This will permanently remove the file from storage and clear the proof from this transaction. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingProof}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteProof}
+              disabled={deletingProof}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingProof ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 };

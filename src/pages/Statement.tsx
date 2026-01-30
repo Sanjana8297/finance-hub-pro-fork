@@ -1677,7 +1677,9 @@ const Statement = () => {
                           size="icon"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleViewDocument(statement);
+                            if (statement.file_url) {
+                              window.open(statement.file_url, "_blank");
+                            }
                           }}
                           title="View Document"
                         >
