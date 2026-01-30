@@ -20,7 +20,8 @@ import {
   Wallet,
   Menu,
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ListChecks
   // FileCheck
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -57,6 +58,7 @@ const navItems: NavItem[] = [
   { label: "Expenses", href: "/expenses", icon: CreditCard },
   { label: "Payroll", href: "/payroll", icon: Wallet },
   { label: "Statement", href: "/statement", icon: FileSpreadsheet },
+  { label: "Transactions", href: "/transactions", icon: ListChecks },
   { label: "Employees", href: "/employees", icon: Users },
   { label: "Reports", href: "/reports", icon: FileBarChart },
   { label: "Notifications", href: "/notifications", icon: Bell },

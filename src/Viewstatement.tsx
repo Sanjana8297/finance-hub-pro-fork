@@ -212,12 +212,12 @@ const Viewstatement: React.FC = () => {
 
     result.allRowsBeforeHeader = rowsBeforeHeader;
 
-    // Now classify rows into customer info and summary
+    // Now classify rows into customer info only (exclude summary rows)
     // Strategy: Look for rows that have label-value patterns or multiple numeric values
     rowsBeforeHeader.forEach((rowInfo) => {
       const rowText = rowInfo.text;
       
-      // Strong indicators for summary row
+      // Strong indicators for summary row - exclude these from customerInfo
       const summaryIndicators = [
         "opening balance",
         "closing balance",
@@ -231,18 +231,8 @@ const Viewstatement: React.FC = () => {
         rowText.includes(indicator)
       );
 
-      // If it has multiple summary indicators or is clearly a summary row
-      if (hasSummaryIndicator) {
-        // This is a summary row
-        if (!result.summaryInfo) {
-          // Store the first summary row found
-          result.summaryInfo = {
-            rowIndex: rowInfo.rowIndex,
-            data: rowInfo.data,
-          };
-        }
-      } else {
-        // This is customer info
+      // Only add non-summary rows as customer info
+      if (!hasSummaryIndicator) {
         result.customerInfo.push({
           rowIndex: rowInfo.rowIndex,
           data: rowInfo.data,
@@ -372,109 +362,50 @@ const Viewstatement: React.FC = () => {
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
                         <h3 className="text-lg font-semibold mb-4 text-blue-900">Customer Information</h3>
                         <div className="space-y-4">
-                          {documentMetadata.customerInfo.map((info: any, idx: number) => (
-                            <div key={idx} className="bg-white rounded p-4 border border-blue-100">
-                              {/* Display the entire row as label-value pairs */}
-                              {info.data.map((cell: any, cellIdx: number) => {
-                                const cellValue = String(cell || "").trim();
-                                // Skip empty cells
-                                if (!cellValue) return null;
-                                
-                                // Use the cell itself and the previous cell as label if available
-                                // For typical customer info like "Name: John", "Account: 123"
-                                const prevCell = info.data[cellIdx - 1] ? String(info.data[cellIdx - 1] || "").trim() : null;
-                                
-                                // Determine if current cell is a label (has text, not numbers)
-                                const isLabel = /^[a-zA-Z\s:]+$/.test(cellValue);
-                                const nextCell = info.data[cellIdx + 1] ? String(info.data[cellIdx + 1] || "").trim() : null;
-                                
-                                // If current cell looks like a label and there's a value after it, pair them
-                                if (isLabel && nextCell) {
-                                  return (
-                                    <div key={cellIdx} className="flex justify-between py-2 border-b border-blue-100 last:border-0">
-                                      <span className="text-sm font-medium text-blue-700">{cellValue}:</span>
-                                      <span className="text-sm text-blue-900 font-semibold">{nextCell}</span>
-                                    </div>
-                                  );
-                                } else if (!isLabel && !prevCell?.match(/^[a-zA-Z\s:]+$/)) {
-                                  // If not a label and previous cell isn't a label, show as standalone
-                                  return (
-                                    <div key={cellIdx} className="flex justify-between py-2 border-b border-blue-100 last:border-0">
-                                      <span className="text-sm font-medium text-blue-700">Value:</span>
-                                      <span className="text-sm text-blue-900 font-semibold">{cellValue}</span>
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              })}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Summary Section - Display summary row exactly as it is */}
-                    {documentMetadata?.summaryInfo && (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-                        <h3 className="text-lg font-semibold mb-4 text-green-900">Account Summary</h3>
-                        <div className="bg-white rounded p-4 border border-green-100">
-                          {(() => {
-                            const summaryData = documentMetadata.summaryInfo.data;
-                            const summaryItems = [];
+                          {documentMetadata.customerInfo.map((info: any, idx: number) => {
+                            // Extract customer info pairs only up to "currency"
+                            const customerPairs = [];
+                            const processedIndices = new Set<number>();
                             
-                            // Pair labels with values from the summary row
-                            for (let i = 0; i < summaryData.length; i++) {
-                              const cell = String(summaryData[i] || "").trim();
+                            for (let i = 0; i < info.data.length; i++) {
+                              if (processedIndices.has(i)) continue;
+                              
+                              const cell = String(info.data[i] || "").trim();
                               if (!cell) continue;
                               
-                              const nextCell = summaryData[i + 1] ? String(summaryData[i + 1] || "").trim() : null;
-                              const isLabel = /^[a-zA-Z\s:]+$/.test(cell);
+                              const cellLower = cell.toLowerCase();
+                              const isLabel = /^[a-zA-Z\s:()]+$/.test(cell);
                               
-                              // If current cell is a label and there's a value next, pair them
-                              if (isLabel && nextCell) {
-                                summaryItems.push({
-                                  label: cell,
-                                  value: nextCell,
-                                  idx: `${i}-${i+1}`
-                                });
-                                i++; // Skip next cell as we've paired it
-                              } else if (!isLabel && cell) {
-                                // If it's a value without a label, use a generic label
-                                summaryItems.push({
-                                  label: `Amount ${summaryItems.length + 1}`,
-                                  value: cell,
-                                  idx: i
-                                });
+                              if (isLabel) {
+                                const nextCell = info.data[i + 1] ? String(info.data[i + 1] || "").trim() : null;
+                                if (nextCell) {
+                                  customerPairs.push({
+                                    label: cell,
+                                    value: nextCell,
+                                    idx: i
+                                  });
+                                  processedIndices.add(i);
+                                  processedIndices.add(i + 1);
+                                  
+                                  // Stop if we've reached currency
+                                  if (cellLower.includes("currency")) {
+                                    break;
+                                  }
+                                }
                               }
                             }
                             
-                            if (summaryItems.length === 0) {
-                              // If pairing failed, just display all non-empty cells
-                              summaryData.forEach((cell: any, idx: number) => {
-                                const cellValue = String(cell || "").trim();
-                                if (cellValue) {
-                                  summaryItems.push({
-                                    label: `Field ${idx + 1}`,
-                                    value: cellValue,
-                                    idx
-                                  });
-                                }
-                              });
-                            }
-                            
                             return (
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {summaryItems.map((item: any) => (
-                                  <div key={item.idx} className="bg-green-50 rounded p-4 border border-green-200">
-                                    <p className="text-xs font-semibold text-green-700 mb-2 uppercase truncate" title={item.label}>
-                                      {item.label}
-                                    </p>
-                                    <p className="text-lg font-bold text-green-900 break-words">{item.value}</p>
+                              <div key={idx} className="bg-white rounded p-4 border border-blue-100">
+                                {customerPairs.map((pair: any) => (
+                                  <div key={pair.idx} className="flex justify-between py-2 border-b border-blue-100 last:border-0">
+                                    <span className="text-sm font-medium text-blue-700">{pair.label}:</span>
+                                    <span className="text-sm text-blue-900 font-semibold">{pair.value}</span>
                                   </div>
                                 ))}
                               </div>
                             );
-                          })()}
+                          })}
                         </div>
                       </div>
                     )}
@@ -588,12 +519,6 @@ const Viewstatement: React.FC = () => {
               <p><strong>Account Number:</strong> {statement.account_number || 'N/A'}</p>
               <p><strong>Period:</strong> {statement.statement_period_start && statement.statement_period_end ? 
                 `${format(new Date(statement.statement_period_start), 'MMM d, yyyy')} - ${format(new Date(statement.statement_period_end), 'MMM d, yyyy')}` : 'N/A'}</p>
-            </div>
-            <div>
-              <p><strong>Opening Balance:</strong> {formatCurrency(statement.opening_balance, statement.currency)}</p>
-              <p><strong>Closing Balance:</strong> {formatCurrency(statement.closing_balance, statement.currency)}</p>
-              <p><strong>Total Credits:</strong> {formatCurrency(statement.total_credits, statement.currency)}</p>
-              <p><strong>Total Debits:</strong> {formatCurrency(statement.total_debits, statement.currency)}</p>
             </div>
           </div>
           <div className="mt-4 flex gap-2">
