@@ -48,23 +48,24 @@ interface NavItem {
   href: string;
   icon: LucideIcon;
   badge?: number;
+  requiredRoles?: ("super_admin" | "admin" | "finance_manager" | "accountant" | "hr" | "employee" | "auditor")[];
 }
 
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   // { label: "Quotations", href: "/quotations", icon: FileCheck },
   { label: "Receipts", href: "/receipts", icon: Receipt },
-  { label: "Invoices", href: "/invoices", icon: FileText },
+  { label: "Invoices", href: "/invoices", icon: FileText, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
   { label: "Expenses", href: "/expenses", icon: CreditCard },
-  { label: "Payroll", href: "/payroll", icon: Wallet },
-  { label: "Statement", href: "/statement", icon: FileSpreadsheet },
-  { label: "Transactions", href: "/transactions", icon: ListChecks },
-  { label: "Employees", href: "/employees", icon: Users },
-  { label: "Reports", href: "/reports", icon: FileBarChart },
-  { label: "Notifications", href: "/notifications", icon: Bell },
-  { label: "Audit Logs", href: "/audit-logs", icon: ScrollText },
-  { label: "Users", href: "/users", icon: UserCog },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { label: "Payroll", href: "/payroll", icon: Wallet, requiredRoles: ["super_admin", "admin", "finance_manager", "hr"] },
+  { label: "Statement", href: "/statement", icon: FileSpreadsheet, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
+  { label: "Transactions", href: "/transactions", icon: ListChecks, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
+  { label: "Employees", href: "/employees", icon: Users, requiredRoles: ["super_admin", "admin", "hr"] },
+  { label: "Reports", href: "/reports", icon: FileBarChart, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant", "auditor"] },
+  { label: "Notifications", href: "/notifications", icon: Bell, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
+  { label: "Audit Logs", href: "/audit-logs", icon: ScrollText, requiredRoles: ["super_admin", "admin", "auditor"] },
+  { label: "Users", href: "/users", icon: UserCog, requiredRoles: ["super_admin", "admin"] },
+  { label: "Settings", href: "/settings", icon: Settings, requiredRoles: ["super_admin", "admin"] },
 ];
 
 interface DashboardLayoutProps {
@@ -78,9 +79,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, roles, signOut } = useAuth();
+  const { profile, roles, signOut, hasRole } = useAuth();
   const { data: notifications } = useNotifications(5);
   const clearNotifications = useClearNotifications();
+
+  // Filter nav items based on user roles
+  const filteredNavItems = navItems.filter((item) => {
+    if (!item.requiredRoles || item.requiredRoles.length === 0) {
+      return true; // No role restriction, show to everyone
+    }
+    // Check if user has at least one of the required roles
+    return item.requiredRoles.some((role) => hasRole(role));
+  });
 
   const handleSignOut = async () => {
     await signOut();
@@ -133,7 +143,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-6 px-3">
           <ul className="space-y-1.5">
-            {navItems.map((item, index) => {
+            {filteredNavItems.map((item, index) => {
               const isActive = location.pathname === item.href;
               return (
                 <li key={item.href} className="animate-slide-in-left" style={{ animationDelay: `${index * 0.05}s` }}>
