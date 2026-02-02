@@ -433,8 +433,8 @@ const Settings = () => {
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Member Since</p>
                     <p className="text-sm">
-                      {profile?.created_at
-                        ? new Date(profile.created_at).toLocaleDateString()
+                      {(profile as any)?.created_at
+                        ? new Date((profile as any).created_at).toLocaleDateString()
                         : "N/A"}
                     </p>
                   </div>

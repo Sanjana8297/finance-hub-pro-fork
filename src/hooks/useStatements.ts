@@ -36,34 +36,14 @@ export function useBankStatementTransactions(statementId: string | undefined) {
     queryFn: async () => {
       if (!statementId) return [];
 
+      // Don't sort on server side - will be sorted client-side by metadata.transaction_date
       const { data, error } = await supabase
         .from("bank_statement_transactions")
         .select("*")
-        .eq("statement_id", statementId)
-        .order("transaction_date", { ascending: false });
+        .eq("statement_id", statementId);
 
       if (error) throw error;
       return data as BankStatementTransaction[];
-    },
-    enabled: !!statementId,
-  });
-}
-
-// Hook to fetch a single statement by ID (works without authentication for shared links)
-export function useBankStatement(statementId: string | undefined) {
-  return useQuery({
-    queryKey: ["bank-statement", statementId],
-    queryFn: async () => {
-      if (!statementId) return null;
-
-      const { data, error } = await supabase
-        .from("bank_statements")
-        .select("*")
-        .eq("id", statementId)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data as BankStatement | null;
     },
     enabled: !!statementId,
   });

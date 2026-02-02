@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { PublicSharedRoute } from "@/components/auth/PublicSharedRoute";
 import { NotificationListener } from "@/components/notifications/NotificationListener";
 import Dashboard from "./pages/Dashboard";
 // import Quotations from "./pages/Quotations";
@@ -104,9 +103,9 @@ const App = () => (
             <Route
               path="/transactions"
               element={
-                <PublicSharedRoute requiredRoles={["super_admin", "admin", "finance_manager", "accountant"]}>
+                <ProtectedRoute requiredRoles={["super_admin", "admin", "finance_manager", "accountant"]}>
                   <Transactions />
-                </PublicSharedRoute>
+                </ProtectedRoute>
               }
             />
             <Route

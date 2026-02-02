@@ -36,7 +36,7 @@ import {
   X,
   AlertCircle,
 } from "lucide-react";
-import { format, parse } from "date-fns";
+import { format, parse, addDays } from "date-fns";
 import { useBankStatements, useBankStatementTransactions, useCreateBankStatement, useDeleteBankStatement } from "@/hooks/useStatements";
 import { useCompany } from "@/hooks/useCompany";
 import { supabase } from "@/integrations/supabase/client";
@@ -56,8 +56,8 @@ const Statement = () => {
   const [loadingDocument, setLoadingDocument] = useState(false);
   const [documentMetadata, setDocumentMetadata] = useState<any>(null);
 
-  // Extract transaction date from metadata and convert to YYYY-MM-DD format (same logic as Transactions.tsx)
-  const getTransactionDateFromMetadata = (metadata: any): string | null => {
+  // Extract transaction date from metadata in its original format (e.g., "14-May-2025")
+  const getTransactionDateFromMetadataOriginal = (metadata: any): string | null => {
     if (!metadata) return null;
     
     let dateStr: string | null = null;
@@ -74,6 +74,39 @@ const Statement = () => {
         dateStr = transactionDateColumn.value;
       }
     }
+    
+    // Return the original date string format (e.g., "14-May-2025")
+    return dateStr || null;
+  };
+
+  // Extract value date from metadata in its original format (e.g., "14-May-2025")
+  const getValueDateFromMetadataOriginal = (metadata: any): string | null => {
+    if (!metadata) return null;
+    
+    let dateStr: string | null = null;
+    
+    // Try to get from original_data first
+    if (metadata.original_data && metadata.original_data["Value Date"]) {
+      dateStr = metadata.original_data["Value Date"];
+    } else if (metadata.all_columns && Array.isArray(metadata.all_columns)) {
+      // Fallback: try to get from all_columns
+      const valueDateColumn = metadata.all_columns.find((col: any) => 
+        col.header && col.header.toLowerCase().includes("value date")
+      );
+      if (valueDateColumn && valueDateColumn.value) {
+        dateStr = valueDateColumn.value;
+      }
+    }
+    
+    // Return the original date string format (e.g., "14-May-2025")
+    return dateStr || null;
+  };
+
+  // Extract transaction date from metadata and convert to YYYY-MM-DD format (same logic as Transactions.tsx)
+  const getTransactionDateFromMetadata = (metadata: any): string | null => {
+    if (!metadata) return null;
+    
+    const dateStr = getTransactionDateFromMetadataOriginal(metadata);
     
     if (!dateStr) return null;
     
@@ -148,7 +181,9 @@ const Statement = () => {
         const lastDateObj = new Date(lastDate);
         
         if (!isNaN(firstDateObj.getTime()) && !isNaN(lastDateObj.getTime())) {
-          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(lastDateObj, "MMM d, yyyy")}`;
+          // Add one day to the end date for period calculation
+          const endDateObj = addDays(lastDateObj, 1);
+          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(endDateObj, "MMM d, yyyy")}`;
         }
       }
       
@@ -264,15 +299,15 @@ const Statement = () => {
               }
               // Try next cell
               if (opening === null && nextCell) {
-                const nextCellStr = String(nextCell).trim();
-                const parsed = parseFloat(nextCellStr.replace(/[^0-9.-]/g, ""));
-                if (!isNaN(parsed)) {
-                  opening = parsed;
-                }
-              }
-            }
+        const nextCellStr = String(nextCell).trim();
+        const parsed = parseFloat(nextCellStr.replace(/[^0-9.-]/g, ""));
+        if (!isNaN(parsed)) {
+          opening = parsed;
+        }
+      }
+    }
 
-            // Find closing balance
+    // Find closing balance
             if (closing === null && (cellLower.includes("closing") || cellLower.includes("final")) && !cellLower.includes("opening")) {
               // Try to extract number from the same cell
               const sameCellMatch = cell.match(/[\d,]+\.?\d*/);
@@ -284,10 +319,10 @@ const Statement = () => {
               }
               // Try next cell
               if (closing === null && nextCell) {
-                const nextCellStr = String(nextCell).trim();
-                const parsed = parseFloat(nextCellStr.replace(/[^0-9.-]/g, ""));
-                if (!isNaN(parsed)) {
-                  closing = parsed;
+        const nextCellStr = String(nextCell).trim();
+        const parsed = parseFloat(nextCellStr.replace(/[^0-9.-]/g, ""));
+        if (!isNaN(parsed)) {
+          closing = parsed;
                 }
               }
             }
@@ -346,7 +381,7 @@ const Statement = () => {
           const valueRow = data[rowIdx + 1];
           if (valueRow) {
             console.log(`  Values in next row (${rowIdx + 1}):`);
-            
+
             // Extract debit amount from the same column
             if (debitColIdx < valueRow.length) {
               const debitStr = String(valueRow[debitColIdx] || "").trim();
@@ -448,9 +483,9 @@ const Statement = () => {
               if (!isNaN(parsed) && parsed > 0) {
                 totalDebits = parsed;
                 console.log(`  → Extracted from next cell (${nextCol}): ${parsed}`);
-                break;
-              }
-            }
+        break;
+      }
+    }
           }
         }
         
@@ -515,7 +550,7 @@ const Statement = () => {
                 if (!isNaN(parsed) && parsed > 0) {
                   foundDebitAmount = parsed;
                   break;
-                }
+    }
               }
             }
           }
@@ -602,7 +637,7 @@ const Statement = () => {
       const hasTransactionHeaders = transactionHeaderKeywords.filter(keyword => rowText.includes(keyword)).length >= 2;
       const totalHeaderCount = transactionHeaderKeywords.filter(keyword => rowText.includes(keyword)).length +
                               commonHeaderKeywords.filter(keyword => rowText.includes(keyword)).length;
-      
+
       // Require at least 2 transaction-specific headers OR at least 3 total headers
       if (hasTransactionHeaders || (totalHeaderCount >= 3 && transactionHeaderKeywords.filter(keyword => rowText.includes(keyword)).length >= 1)) {
         headerRowIndex = i;
@@ -636,8 +671,8 @@ const Statement = () => {
         result.headerRowIndex = bestRowIndex;
       } else {
         // Final fallback
-        headerRowIndex = 0;
-        result.headerRowIndex = 0;
+      headerRowIndex = 0;
+      result.headerRowIndex = 0;
       }
     }
 
@@ -809,6 +844,24 @@ const Statement = () => {
   const deleteStatement = useDeleteBankStatement();
   const { data: company } = useCompany();
   const { user } = useAuth();
+  
+  // Sort transactions by metadata.transaction_date in descending order (newest first)
+  const sortedTransactions = useMemo(() => {
+    if (!transactions || transactions.length === 0) return [];
+    
+    return [...transactions].sort((a: any, b: any) => {
+      // Get transaction date from metadata, fallback to transaction_date column
+      const dateA = getTransactionDateFromMetadata(a.metadata) || a.transaction_date;
+      const dateB = getTransactionDateFromMetadata(b.metadata) || b.transaction_date;
+      
+      // Parse dates
+      const dateAValue = dateA ? new Date(dateA).getTime() : 0;
+      const dateBValue = dateB ? new Date(dateB).getTime() : 0;
+      
+      // Sort in descending order (newest first)
+      return dateBValue - dateAValue;
+    });
+  }, [transactions]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -936,7 +989,7 @@ const Statement = () => {
               headerRowIndex = bestRowIndex;
             } else {
               // Final fallback
-              headerRowIndex = 0;
+            headerRowIndex = 0;
             }
             console.log("Using header row at index:", headerRowIndex, "with", maxPopulatedCount, "populated cells");
           }
@@ -1294,7 +1347,7 @@ const Statement = () => {
                   // Validate the calculated date is valid
                   if (!isNaN(calculatedDate.getTime()) && calculatedDate.getFullYear() > 1900 && calculatedDate.getFullYear() < 2100) {
                     transactionDate = calculatedDate;
-                    console.log("Parsed Excel serial date:", excelDateNum, "->", transactionDate);
+                console.log("Parsed Excel serial date:", excelDateNum, "->", transactionDate);
                   }
                 } catch (e) {
                   console.warn("Failed to parse Excel serial date:", excelDateNum);
@@ -1341,8 +1394,8 @@ const Statement = () => {
             // Track dates for statement period
             // Only track valid dates (not NaN)
             if (transactionDate && !isNaN(transactionDate.getTime())) {
-              if (!minDate || transactionDate < minDate) minDate = transactionDate;
-              if (!maxDate || transactionDate > maxDate) maxDate = transactionDate;
+            if (!minDate || transactionDate < minDate) minDate = transactionDate;
+            if (!maxDate || transactionDate > maxDate) maxDate = transactionDate;
             }
 
             // Track opening/closing balance
@@ -1356,11 +1409,31 @@ const Statement = () => {
             // Validate transaction date before using
             const validTransactionDate = transactionDate && !isNaN(transactionDate.getTime()) 
               ? transactionDate.toISOString().split("T")[0]
-              : new Date().toISOString().split("T")[0]; // Fallback to current date if invalid
+              : null;
             
             const validValueDate = valueDate && !isNaN(valueDate.getTime()) 
               ? valueDate.toISOString().split("T")[0]
               : null;
+
+            // Only consider rows as transactions if they have:
+            // 1. A valid transaction_date
+            // 2. A valid transaction_type (not "both")
+            // 3. A valid balance
+            const hasValidTransactionDate = validTransactionDate !== null;
+            const hasValidTransactionType = transactionType !== "both";
+            const hasValidBalance = balance !== null && balance !== undefined;
+
+            if (!hasValidTransactionDate || !hasValidTransactionType || !hasValidBalance) {
+              skippedCount++;
+              console.log(`Row ${i + 1} skipped - missing required fields:`, {
+                hasValidTransactionDate,
+                hasValidTransactionType,
+                transactionType,
+                hasValidBalance,
+                balance
+              });
+              continue;
+            }
 
             // Store all original row data in metadata for reference
             const rowData: Record<string, any> = {};
@@ -1435,7 +1508,8 @@ const Statement = () => {
               periodStartDate = firstTransactionDate;
             }
             if (!isNaN(lastTransactionDate.getTime())) {
-              periodEndDate = lastTransactionDate;
+              // Add one day to the end date for period calculation
+              periodEndDate = addDays(lastTransactionDate, 1);
             }
           }
 
@@ -1849,21 +1923,21 @@ const Statement = () => {
               <div>
                 <CardTitle>Transaction Details</CardTitle>
                 <CardDescription>
-                  Showing {transactions?.length || 0} transactions from the selected statement
+                  Showing {sortedTransactions?.length || 0} transactions from the selected statement
                 </CardDescription>
               </div>
-              {transactions && transactions.length > 0 && (
+              {sortedTransactions && sortedTransactions.length > 0 && (
                 <div className="flex gap-6 text-sm">
                   <div className="text-center">
                     <p className="text-muted-foreground text-xs">Debit Transactions</p>
                     <p className="text-red-600 font-bold text-lg">
-                      {(transactions as any[]).filter((t: any) => t.debit_amount > 0).length}
+                      {(sortedTransactions as any[]).filter((t: any) => t.debit_amount > 0).length}
                     </p>
                   </div>
                   <div className="text-center">
                     <p className="text-muted-foreground text-xs">Credit Transactions</p>
                     <p className="text-green-600 font-bold text-lg">
-                      {(transactions as any[]).filter((t: any) => t.credit_amount > 0).length}
+                      {(sortedTransactions as any[]).filter((t: any) => t.credit_amount > 0).length}
                     </p>
                   </div>
                 </div>
@@ -1877,7 +1951,7 @@ const Statement = () => {
                 <Skeleton className="h-10 w-full mb-2" />
                 <Skeleton className="h-10 w-full" />
               </div>
-            ) : transactions && transactions.length > 0 ? (
+            ) : sortedTransactions && sortedTransactions.length > 0 ? (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -1894,7 +1968,7 @@ const Statement = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transactions?.map((transaction: any, index: number) => {
+                    {sortedTransactions?.map((transaction: any, index: number) => {
                       const metadata = transaction.metadata as any;
                       const allColumns = metadata?.all_columns || [];
                       
@@ -1904,12 +1978,34 @@ const Statement = () => {
                             {index + 1}
                           </TableCell>
                           <TableCell>
-                            {format(new Date(transaction.transaction_date), "MMM d, yyyy")}
+                            {(() => {
+                              // Extract Transaction Date from metadata column in its original format
+                              const metadataDate = getTransactionDateFromMetadataOriginal(metadata);
+                              // Use metadata date if available (already in original format like "14-May-2025")
+                              if (metadataDate) {
+                                return metadataDate;
+                              } else if (transaction.transaction_date) {
+                                // Fallback to transaction_date if metadata doesn't have date
+                                return format(new Date(transaction.transaction_date), "MMM d, yyyy");
+                              } else {
+                                return "—";
+                              }
+                            })()}
                           </TableCell>
                           <TableCell>
-                            {transaction.value_date 
-                              ? format(new Date(transaction.value_date), "MMM d, yyyy")
-                              : "—"}
+                            {(() => {
+                              // Extract Value Date from metadata column in its original format
+                              const metadataValueDate = getValueDateFromMetadataOriginal(metadata);
+                              // Use metadata date if available (already in original format like "14-May-2025")
+                              if (metadataValueDate) {
+                                return metadataValueDate;
+                              } else if (transaction.value_date) {
+                                // Fallback to value_date if metadata doesn't have date
+                                return format(new Date(transaction.value_date), "MMM d, yyyy");
+                              } else {
+                                return "—";
+                              }
+                            })()}
                           </TableCell>
                           <TableCell className="min-w-[400px] max-w-[600px]">
                             <div className="space-y-1">
@@ -2054,28 +2150,28 @@ const Statement = () => {
                   <div className="p-4 overflow-x-auto">
 
                     {/* Raw Data View - Display all data directly */}
-                    <div className="mt-4 overflow-x-auto">
-                      <Table className="text-sm border-collapse border border-gray-300">
-                        <TableHeader>
-                          <TableRow className="bg-gray-100">
-                            {excelData[0]?.map((header: any, idx: number) => (
-                              <TableHead key={idx} className="border border-gray-300 p-2 text-left font-semibold min-w-max">{header || `Col ${idx + 1}`}</TableHead>
-                            ))}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {excelData.slice(1).map((row: any, rowIdx: number) => (
-                            <TableRow key={rowIdx} className="hover:bg-gray-50">
-                              {row.map((cell: any, cellIdx: number) => (
-                                <TableCell key={cellIdx} className="border border-gray-300 p-2 text-xs align-top break-words">
-                                  {cell !== undefined && cell !== null ? String(cell) : '—'}
-                                </TableCell>
+                      <div className="mt-4 overflow-x-auto">
+                        <Table className="text-sm border-collapse border border-gray-300">
+                          <TableHeader>
+                            <TableRow className="bg-gray-100">
+                              {excelData[0]?.map((header: any, idx: number) => (
+                                <TableHead key={idx} className="border border-gray-300 p-2 text-left font-semibold min-w-max">{header || `Col ${idx + 1}`}</TableHead>
                               ))}
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
+                          </TableHeader>
+                          <TableBody>
+                            {excelData.slice(1).map((row: any, rowIdx: number) => (
+                              <TableRow key={rowIdx} className="hover:bg-gray-50">
+                                {row.map((cell: any, cellIdx: number) => (
+                                  <TableCell key={cellIdx} className="border border-gray-300 p-2 text-xs align-top break-words">
+                                    {cell !== undefined && cell !== null ? String(cell) : '—'}
+                                  </TableCell>
+                                ))}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">

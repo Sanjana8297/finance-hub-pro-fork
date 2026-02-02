@@ -73,3 +73,56 @@ export function useCreateCategory() {
     },
   });
 }
+
+export function useDeleteCategory() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (categoryId: string) => {
+      // First, get the category name to find all transactions using it
+      const { data: category, error: categoryError } = await supabase
+        .from("category")
+        .select("category_name")
+        .eq("category_id", categoryId)
+        .single();
+
+      if (categoryError) throw categoryError;
+
+      // Clear the category field from all transactions that use this category
+      if (category?.category_name) {
+        const { error: updateError } = await supabase
+          .from("bank_statement_transactions")
+          .update({ category: null })
+          .eq("category", category.category_name);
+
+        if (updateError) {
+          console.warn("Failed to clear category from transactions:", updateError);
+          // Don't throw - continue with category deletion even if transaction update fails
+        }
+      }
+
+      // Delete the category
+      const { error } = await supabase
+        .from("category")
+        .delete()
+        .eq("category_id", categoryId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["bank-statement-transactions"] });
+      toast({
+        title: "Category deleted",
+        description: "The category has been deleted successfully. Transactions using this category have been updated.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to delete category",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
