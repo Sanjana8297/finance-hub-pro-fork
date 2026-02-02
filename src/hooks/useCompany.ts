@@ -23,19 +23,55 @@ export function useCompany() {
         .eq("id", user.id)
         .single();
 
-      if (profileError || !profile?.company_id) {
+      if (profileError) {
         return null;
       }
 
-      // Get company data - always fetch fresh to get latest logo
-      const { data, error } = await supabase
+      // Find TechVitta company
+      const { data: techVittaCompany, error: techVittaError } = await supabase
         .from("companies")
         .select("*")
-        .eq("id", profile.company_id)
+        .eq("name", "TechVitta")
         .maybeSingle();
 
-      if (error) throw error;
-      return data;
+      if (techVittaError) {
+        console.error("Error finding TechVitta company:", techVittaError);
+      }
+
+      // If TechVitta exists and user's profile doesn't point to it, update the profile
+      if (techVittaCompany && profile?.company_id !== techVittaCompany.id) {
+        const { error: updateError } = await supabase
+          .from("profiles")
+          .update({ company_id: techVittaCompany.id })
+          .eq("id", user.id);
+
+        if (updateError) {
+          console.error("Error updating profile company_id:", updateError);
+        } else {
+          console.log("Updated profile to TechVitta company");
+        }
+        // Return TechVitta company
+        return techVittaCompany;
+      }
+
+      // If profile has a company_id, use that
+      if (profile?.company_id) {
+        const { data, error } = await supabase
+          .from("companies")
+          .select("*")
+          .eq("id", profile.company_id)
+          .maybeSingle();
+
+        if (error) throw error;
+        return data;
+      }
+
+      // If no company_id in profile but TechVitta exists, return it
+      if (techVittaCompany) {
+        return techVittaCompany;
+      }
+
+      return null;
     },
   });
 }
@@ -134,6 +170,66 @@ export function useRemoveCompanyLogo() {
       toast({
         title: "Remove failed",
         description: error.message || "Failed to remove company logo. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useAllCompanies() {
+  return useQuery({
+    queryKey: ["all-companies"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("companies")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+}
+
+export function useSwitchCompany() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (newCompanyId: string) => {
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        throw new Error("User not authenticated");
+      }
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ company_id: newCompanyId })
+        .eq("id", user.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // Invalidate company query to refetch with new company
+      queryClient.invalidateQueries({ queryKey: ["company"] });
+      queryClient.invalidateQueries({ queryKey: ["all-companies"] });
+      // Also invalidate auth context data
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      toast({
+        title: "Company switched",
+        description: "You have successfully switched to the new company. Page will refresh...",
+      });
+      // Reload page to refresh all data including AuthContext
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    },
+    onError: (error: any) => {
+      console.error("Failed to switch company:", error);
+      toast({
+        title: "Switch failed",
+        description: error.message || "Failed to switch company. Please try again.",
         variant: "destructive",
       });
     },
