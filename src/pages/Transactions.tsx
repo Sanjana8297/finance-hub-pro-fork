@@ -345,18 +345,15 @@ const Transactions = () => {
     
     if (!dateStr) return null;
     
-    // Parse date format like "14-May-2025" to "YYYY-MM-DD"
-    try {
-      // First try standard Date parsing
-      const date = new Date(dateStr);
-      if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0];
-      }
-    } catch (e) {
-      // Continue to manual parsing
-    }
+    // Helper function to format date using local components (avoid timezone issues)
+    const formatDateLocal = (date: Date): string => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
     
-    // Manual parsing for format "DD-MMM-YYYY" (e.g., "14-May-2025")
+    // Manual parsing for format "DD-MMM-YYYY" (e.g., "14-May-2025") - preferred method
     const parts = String(dateStr).trim().split('-');
     if (parts.length === 3) {
       const day = parts[0].trim().padStart(2, '0');
@@ -371,11 +368,12 @@ const Transactions = () => {
       }
     }
     
-    // Try parsing as "DD/MM/YYYY" or other formats
+    // Try standard Date parsing (fallback for other formats)
     try {
       const date = new Date(dateStr);
       if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0];
+        // Use local date components instead of toISOString() to avoid timezone shifts
+        return formatDateLocal(date);
       }
     } catch (e) {
       // Ignore
@@ -1040,21 +1038,77 @@ const Transactions = () => {
                               });
                             }
                             
+                            // Normalize filter dates to YYYY-MM-DD format for comparison
+                            // Use local date formatting to avoid timezone issues
+                            const normalizeDate = (date: string | Date | null): string | null => {
+                              if (!date) return null;
+                              
+                              let dateObj: Date | null = null;
+                              
+                              if (typeof date === 'string') {
+                                // If already in YYYY-MM-DD format, return as is
+                                if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                                  return date;
+                                }
+                                // Try to parse
+                                dateObj = new Date(date);
+                              } else if (date instanceof Date) {
+                                dateObj = date;
+                              }
+                              
+                              if (!dateObj || isNaN(dateObj.getTime())) {
+                                return null;
+                              }
+                              
+                              // Format as YYYY-MM-DD using local date components (not UTC)
+                              // This avoids timezone conversion issues
+                              const year = dateObj.getFullYear();
+                              const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                              const day = String(dateObj.getDate()).padStart(2, '0');
+                              return `${year}-${month}-${day}`;
+                            };
+                            
+                            const normalizedStartDate = normalizeDate(filterStartDate);
+                            const normalizedEndDate = normalizeDate(filterEndDate);
+                            
                             transactionsToCheck = transactionsToCheck.filter((txn: any) => {
                               // Get transaction date from metadata
                               const txnDateStr = getTransactionDateFromMetadata(txn.metadata);
                               
                               // If no date found in metadata, fallback to transaction_date
-                              const dateToCompare = txnDateStr || txn.transaction_date;
+                              let dateToCompare = txnDateStr || txn.transaction_date;
                               
                               if (!dateToCompare) {
                                 // If we can't get a date and filters are set, exclude this transaction
                                 return false;
                               }
                               
+                              // Normalize the transaction date to YYYY-MM-DD format
+                              const normalizedTxnDate = normalizeDate(dateToCompare);
+                              
+                              if (!normalizedTxnDate) {
+                                return false;
+                              }
+                              
                               // Compare dates as strings (YYYY-MM-DD format)
-                              const inDateRange = (!filterStartDate || dateToCompare >= filterStartDate) &&
-                                                 (!filterEndDate || dateToCompare <= filterEndDate);
+                              // >= includes start date, <= includes end date
+                              const meetsStartDate = !normalizedStartDate || normalizedTxnDate >= normalizedStartDate;
+                              const meetsEndDate = !normalizedEndDate || normalizedTxnDate <= normalizedEndDate;
+                              
+                              const inDateRange = meetsStartDate && meetsEndDate;
+                              
+                              // Debug logging for first few transactions
+                              if (transactionsToCheck.indexOf(txn) < 3) {
+                                console.log('Date filter check:', {
+                                  txnDate: dateToCompare,
+                                  normalizedTxnDate,
+                                  normalizedStartDate,
+                                  normalizedEndDate,
+                                  meetsStartDate,
+                                  meetsEndDate,
+                                  inDateRange
+                                });
+                              }
                               
                               return inDateRange;
                             });

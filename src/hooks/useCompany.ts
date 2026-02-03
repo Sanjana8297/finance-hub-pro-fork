@@ -56,14 +56,14 @@ export function useCompany() {
 
       // If profile has a company_id, use that
       if (profile?.company_id) {
-        const { data, error } = await supabase
-          .from("companies")
-          .select("*")
-          .eq("id", profile.company_id)
-          .maybeSingle();
+      const { data, error } = await supabase
+        .from("companies")
+        .select("*")
+        .eq("id", profile.company_id)
+        .maybeSingle();
 
-        if (error) throw error;
-        return data;
+      if (error) throw error;
+      return data;
       }
 
       // If no company_id in profile but TechVitta exists, return it
