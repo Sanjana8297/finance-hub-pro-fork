@@ -632,9 +632,7 @@ const Transactions = () => {
         const lastDateObj = new Date(lastDate);
         
         if (!isNaN(firstDateObj.getTime()) && !isNaN(lastDateObj.getTime())) {
-          // Add one day to the end date for period calculation
-          const endDateObj = addDays(lastDateObj, 1);
-          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(endDateObj, "MMM d, yyyy")}`;
+          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(lastDateObj, "MMM d, yyyy")}`;
         }
       }
       

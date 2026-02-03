@@ -110,18 +110,15 @@ const Statement = () => {
     
     if (!dateStr) return null;
     
-    // Parse date format like "14-May-2025" to "YYYY-MM-DD"
-    try {
-      // First try standard Date parsing
-      const date = new Date(dateStr);
-      if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0];
-      }
-    } catch (e) {
-      // Continue to manual parsing
-    }
+    // Helper function to format date using local components (avoid timezone issues)
+    const formatDateLocal = (date: Date): string => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
     
-    // Manual parsing for format "DD-MMM-YYYY" (e.g., "14-May-2025")
+    // Manual parsing for format "DD-MMM-YYYY" (e.g., "14-May-2025") - preferred method
     const parts = String(dateStr).trim().split('-');
     if (parts.length === 3) {
       const day = parts[0].trim().padStart(2, '0');
@@ -136,11 +133,12 @@ const Statement = () => {
       }
     }
     
-    // Try parsing as "DD/MM/YYYY" or other formats
+    // Try standard Date parsing (fallback for other formats)
     try {
       const date = new Date(dateStr);
       if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0];
+        // Use local date components instead of toISOString() to avoid timezone shifts
+        return formatDateLocal(date);
       }
     } catch (e) {
       // Ignore
@@ -181,9 +179,7 @@ const Statement = () => {
         const lastDateObj = new Date(lastDate);
         
         if (!isNaN(firstDateObj.getTime()) && !isNaN(lastDateObj.getTime())) {
-          // Add one day to the end date for period calculation
-          const endDateObj = addDays(lastDateObj, 1);
-          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(endDateObj, "MMM d, yyyy")}`;
+          return `${format(firstDateObj, "MMM d, yyyy")} - ${format(lastDateObj, "MMM d, yyyy")}`;
         }
       }
       
@@ -1508,8 +1504,7 @@ const Statement = () => {
               periodStartDate = firstTransactionDate;
             }
             if (!isNaN(lastTransactionDate.getTime())) {
-              // Add one day to the end date for period calculation
-              periodEndDate = addDays(lastTransactionDate, 1);
+              periodEndDate = lastTransactionDate;
             }
           }
 
