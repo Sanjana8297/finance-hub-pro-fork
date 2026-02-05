@@ -23,17 +23,20 @@ export function formatCurrency(
   const locale = currency === "INR" ? "en-IN" : "en-US";
   
   if (options?.compact) {
-    // Compact format for large numbers (e.g., ₹10.0M, ₹29.3K)
-    if (amount >= 1000000) {
-      const symbol = getCurrencySymbol(currency);
-      return `${symbol}${(amount / 1000000).toFixed(1)}M`;
-    }
-    if (amount >= 1000) {
-      const symbol = getCurrencySymbol(currency);
-      return `${symbol}${(amount / 1000).toFixed(1)}K`;
-    }
+    // Handle negative values
+    const isNegative = amount < 0;
+    const absAmount = Math.abs(amount);
     const symbol = getCurrencySymbol(currency);
-    return `${symbol}${amount.toLocaleString(locale)}`;
+    const sign = isNegative ? "-" : "";
+    
+    // Compact format for large numbers (e.g., ₹10.0M, ₹29.3K, -₹5.0K)
+    if (absAmount >= 1000000) {
+      return `${sign}${symbol}${(absAmount / 1000000).toFixed(1)}M`;
+    }
+    if (absAmount >= 1000) {
+      return `${sign}${symbol}${(absAmount / 1000).toFixed(1)}K`;
+    }
+    return `${sign}${symbol}${absAmount.toLocaleString(locale)}`;
   }
 
   return new Intl.NumberFormat(locale, {

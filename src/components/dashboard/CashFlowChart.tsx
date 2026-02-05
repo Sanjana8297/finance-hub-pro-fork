@@ -35,6 +35,19 @@ export function CashFlowChart() {
 
   const chartData = data || [];
 
+  // Debug: Log data to verify it's correct
+  if (chartData.length > 0) {
+    const febData = chartData.find(d => d.month === "Feb");
+    if (febData) {
+      console.log("[CashFlowChart] February data:", {
+        month: febData.month,
+        income: febData.income,
+        expenses: febData.expenses,
+        incomeShouldBeZero: febData.income === 0 ? "✓" : "✗ ERROR - Income should be 0 if no receipts/invoices"
+      });
+    }
+  }
+
   return (
     <Card className="col-span-full lg:col-span-2">
       <CardHeader className="pb-2">

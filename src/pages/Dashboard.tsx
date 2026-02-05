@@ -106,9 +106,9 @@ const Dashboard = () => {
                 title="Monthly Profit"
                 value={formatCurrency(stats?.monthlyProfit || 0, currency, { compact: true })}
                 change={formatChange(stats?.profitChange || 0)}
-                changeType={stats?.monthlyProfit && stats.monthlyProfit >= 0 ? "positive" : "negative"}
+                changeType={(stats?.monthlyProfit || 0) >= 0 ? "positive" : "negative"}
                 icon={TrendingUp}
-                iconColor="bg-success/10 text-success"
+                iconColor={(stats?.monthlyProfit || 0) >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}
               />
             </div>
           </>

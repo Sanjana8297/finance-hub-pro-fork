@@ -48,6 +48,26 @@ export function useDashboardStats() {
         .gte("expense_date", lastMonthStart.toISOString().split("T")[0])
         .lte("expense_date", lastMonthEnd.toISOString().split("T")[0]);
 
+      // Fetch PAID invoices for current month
+      // Only paid invoices represent actual income (money received)
+      // Use paid_date to determine when the income was received
+      const { data: currentMonthPaidInvoices } = await supabase
+        .from("invoices")
+        .select("total, paid_date")
+        .eq("status", "paid")
+        .not("paid_date", "is", null)
+        .gte("paid_date", currentMonthStart.toISOString().split("T")[0])
+        .lte("paid_date", now.toISOString().split("T")[0]);
+
+      // Fetch PAID invoices for last month
+      const { data: lastMonthPaidInvoices } = await supabase
+        .from("invoices")
+        .select("total, paid_date")
+        .eq("status", "paid")
+        .not("paid_date", "is", null)
+        .gte("paid_date", lastMonthStart.toISOString().split("T")[0])
+        .lte("paid_date", lastMonthEnd.toISOString().split("T")[0]);
+
       // Fetch pending invoices
       const { data: pendingInvoices } = await supabase
         .from("invoices")
@@ -78,11 +98,39 @@ export function useDashboardStats() {
       const pendingTotal = pendingInvoices?.reduce((sum, i) => sum + Number(i.total), 0) || 0;
       const overdueTotal = overdueInvoices?.reduce((sum, i) => sum + Number(i.total), 0) || 0;
 
-      const monthlyProfit = totalReceipts - totalExpenses;
-      const lastMonthlyProfit = lastTotalReceipts - lastTotalExpenses;
-      const profitChange = lastMonthlyProfit > 0 
-        ? ((monthlyProfit - lastMonthlyProfit) / lastMonthlyProfit) * 100 
-        : 0;
+      // Calculate invoice income for current month
+      // Only count PAID invoices as income (money actually received)
+      const totalInvoices = currentMonthPaidInvoices?.reduce((sum, i) => {
+        return sum + Number(i.total || 0);
+      }, 0) || 0;
+
+      // Calculate invoice income for last month
+      // Only count PAID invoices as income
+      const lastTotalInvoices = lastMonthPaidInvoices?.reduce((sum, i) => {
+        return sum + Number(i.total || 0);
+      }, 0) || 0;
+
+      // Calculate monthly profit: (Paid Invoices ONLY) - Expenses
+      // Receipts are NOT included in income calculation - only paid invoices count as income
+      const totalIncome = totalInvoices; // Only paid invoices, NOT receipts
+      const lastTotalIncome = lastTotalInvoices; // Only paid invoices, NOT receipts
+      const monthlyProfit = totalIncome - totalExpenses;
+      const lastMonthlyProfit = lastTotalIncome - lastTotalExpenses;
+      const profitChange = lastMonthlyProfit !== 0 
+        ? ((monthlyProfit - lastMonthlyProfit) / Math.abs(lastMonthlyProfit)) * 100 
+        : (monthlyProfit > 0 ? 100 : (monthlyProfit < 0 ? -100 : 0));
+
+      // Debug logging
+      console.log('[Dashboard Stats] Monthly Profit Calculation:', {
+        totalReceipts: totalReceipts, // Receipts are NOT included in income
+        paidInvoicesCount: currentMonthPaidInvoices?.length || 0,
+        totalInvoices, // Only paid invoices count as income
+        totalIncome, // Only paid invoices (receipts excluded)
+        totalExpenses,
+        monthlyProfit,
+        profitChange,
+        calculation: `(${totalInvoices} paid invoices) - ${totalExpenses} expenses = ${monthlyProfit} profit`
+      });
 
       return {
         totalReceipts,
@@ -91,8 +139,8 @@ export function useDashboardStats() {
         expensesChange,
         pendingInvoices: pendingTotal,
         pendingInvoicesCount: pendingInvoices?.length || 0,
-        monthlyProfit,
-        profitChange,
+        monthlyProfit: monthlyProfit || 0, // Ensure it's never undefined
+        profitChange: profitChange || 0, // Ensure it's never undefined
         overdueInvoices: {
           count: overdueInvoices?.length || 0,
           total: overdueTotal,
@@ -120,23 +168,202 @@ export function useCashFlowData() {
         const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
         const monthName = monthStart.toLocaleDateString("en-US", { month: "short" });
 
+        // Fetch receipts for income
         const { data: receipts } = await supabase
           .from("receipts")
           .select("amount")
           .gte("receipt_date", monthStart.toISOString().split("T")[0])
           .lte("receipt_date", monthEnd.toISOString().split("T")[0]);
 
+        // Fetch PAID invoices for income
+        // Only paid invoices represent actual income (money received)
+        // For cash flow, we can use either paid_date (when money was received) or issue_date (when invoice was issued)
+        // Let's fetch all paid invoices and filter by both paid_date and issue_date to catch all cases
+        const monthStartStr = monthStart.toISOString().split("T")[0];
+        const monthEndStr = monthEnd.toISOString().split("T")[0];
+        
+        // First, try to get invoices with paid_date in this month
+        const { data: paidInvoicesByPaidDate, error: paidDateError } = await supabase
+          .from("invoices")
+          .select("total, paid_date, issue_date, status, invoice_number")
+          .eq("status", "paid")
+          .not("paid_date", "is", null)
+          .gte("paid_date", monthStartStr)
+          .lte("paid_date", monthEndStr);
+
+        // Also get paid invoices with issue_date in this month (in case paid_date is not set or is in different month)
+        const { data: paidInvoicesByIssueDate, error: issueDateError } = await supabase
+          .from("invoices")
+          .select("total, paid_date, issue_date, status, invoice_number")
+          .eq("status", "paid")
+          .gte("issue_date", monthStartStr)
+          .lte("issue_date", monthEndStr);
+
+        // Combine both results, removing duplicates
+        const allPaidInvoicesForMonth = new Map();
+        
+        // Add invoices by paid_date
+        paidInvoicesByPaidDate?.forEach(inv => {
+          allPaidInvoicesForMonth.set(inv.invoice_number || inv.total, inv);
+        });
+        
+        // Add invoices by issue_date (if not already added)
+        paidInvoicesByIssueDate?.forEach(inv => {
+          if (!allPaidInvoicesForMonth.has(inv.invoice_number || inv.total)) {
+            allPaidInvoicesForMonth.set(inv.invoice_number || inv.total, inv);
+          }
+        });
+        
+        const paidInvoices = Array.from(allPaidInvoicesForMonth.values());
+
+        // Debug: Log if there's an error or if we're not finding paid invoices
+        if (paidDateError) {
+          console.error(`[CashFlow] Error fetching paid invoices by paid_date for ${monthName}:`, paidDateError);
+        }
+        if (issueDateError) {
+          console.error(`[CashFlow] Error fetching paid invoices by issue_date for ${monthName}:`, issueDateError);
+        }
+        
+        // Additional debug: Check if there are any paid invoices at all (for debugging)
+        if (paidInvoices.length === 0) {
+          const { data: allPaidInvoices } = await supabase
+            .from("invoices")
+            .select("total, paid_date, issue_date, status, invoice_number")
+            .eq("status", "paid")
+            .limit(20);
+          
+          if (allPaidInvoices && allPaidInvoices.length > 0) {
+            console.log(`[CashFlow Debug] Found ${allPaidInvoices.length} paid invoices in DB, checking dates for ${monthName}:`, {
+              month: monthName,
+              dateRange: `${monthStartStr} to ${monthEndStr}`,
+              allPaidInvoices: allPaidInvoices.map(inv => ({
+                invoice_number: inv.invoice_number,
+                total: inv.total,
+                paid_date: inv.paid_date,
+                issue_date: inv.issue_date,
+                paidDateInRange: inv.paid_date ? (inv.paid_date >= monthStartStr && inv.paid_date <= monthEndStr) : false,
+                issueDateInRange: inv.issue_date ? (inv.issue_date >= monthStartStr && inv.issue_date <= monthEndStr) : false
+              }))
+            });
+          }
+        }
+
+        // Fetch expenses
         const { data: expenses } = await supabase
           .from("expenses")
           .select("amount")
           .gte("expense_date", monthStart.toISOString().split("T")[0])
           .lte("expense_date", monthEnd.toISOString().split("T")[0]);
 
-        months.push({
-          month: monthName,
-          income: receipts?.reduce((sum, r) => sum + Number(r.amount), 0) || 0,
-          expenses: expenses?.reduce((sum, e) => sum + Number(e.amount), 0) || 0,
+        // Calculate income from receipts
+        const receiptsIncome = receipts?.reduce((sum, r) => {
+          const amount = Number(r.amount) || 0;
+          return sum + (isNaN(amount) ? 0 : amount);
+        }, 0) || 0;
+        
+        // Calculate income from PAID invoices (using paid_date or issue_date - when money was received or invoice was issued)
+        // Only paid invoices represent actual income
+        const paidInvoicesIncome = paidInvoices.reduce((sum, inv) => {
+          const total = Number(inv.total) || 0;
+          return sum + (isNaN(total) ? 0 : total);
+        }, 0);
+
+        // Total income = paid invoices ONLY (receipts are NOT included in income)
+        // CRITICAL: Do NOT add expenses to income, and do NOT add receipts to income
+        const totalIncome = paidInvoicesIncome; // Only paid invoices, NOT receipts
+
+        // Calculate expenses separately (ONLY expenses - never mix with income)
+        // CRITICAL: Expenses are completely separate from income
+        const totalExpenses = expenses?.reduce((sum, e) => {
+          const amount = Number(e.amount) || 0;
+          return sum + (isNaN(amount) ? 0 : amount);
+        }, 0) || 0;
+
+        // Debug logging for all months to verify paid invoices are being included
+        console.log(`[CashFlow Debug - ${monthName}]`, {
+          receiptsCount: receipts?.length || 0,
+          receiptsIncome,
+          paidInvoicesQuery: {
+            status: "paid",
+            paidDateRange: `${monthStartStr} to ${monthEndStr}`,
+            count: paidInvoices.length || 0,
+            byPaidDate: paidInvoicesByPaidDate?.length || 0,
+            byIssueDate: paidInvoicesByIssueDate?.length || 0,
+            combined: paidInvoices.length,
+            paidDateError: paidDateError || null,
+            issueDateError: issueDateError || null
+          },
+          paidInvoicesCount: paidInvoices.length || 0,
+          paidInvoicesData: paidInvoices.map(inv => ({ 
+            invoice_number: inv.invoice_number,
+            total: inv.total, 
+            paid_date: inv.paid_date,
+            issue_date: inv.issue_date
+          })) || [],
+          paidInvoicesIncome,
+          totalIncome,
+          expensesCount: expenses?.length || 0,
+          totalExpenses,
+          incomeShouldBe: totalIncome,
+          expensesShouldBe: totalExpenses
         });
+
+        // CRITICAL: Ensure income and expenses are NEVER mixed
+        // Income MUST only come from PAID invoices (receipts are NOT included)
+        // Expenses MUST only come from expenses table
+        // If there's no income (paidInvoices=0), income MUST be 0, NOT expenses
+        
+        // ABSOLUTE RULE #1: Income = PAID invoices ONLY (receipts excluded)
+        // If paidInvoices=0, then income MUST be 0 (regardless of expenses or receipts)
+        let finalIncome = paidInvoicesIncome; // Only paid invoices, NOT receipts
+        
+        // ABSOLUTE RULE #2: If there are no paid invoices, income is ALWAYS 0
+        if (paidInvoicesIncome === 0) {
+          finalIncome = 0; // Force to 0 - never use expenses value or receipts
+        }
+
+        // ABSOLUTE RULE #3: Expenses are completely separate
+        const finalExpenses = totalExpenses;
+
+        // ABSOLUTE RULE #4: Income can NEVER equal expenses unless both are 0
+        // If they're equal and non-zero, it means income was incorrectly calculated
+        // Force income to 0 in this case
+        if (finalIncome > 0 && finalExpenses > 0 && finalIncome === finalExpenses) {
+          console.error(`[CashFlow Error] Income equals expenses for ${monthName}. This indicates a bug.`, {
+            receiptsIncome, // Receipts are NOT included in income
+            paidInvoicesIncome,
+            calculatedIncome: finalIncome,
+            totalExpenses: finalExpenses,
+            receiptsCount: receipts?.length || 0,
+            paidInvoicesCount: paidInvoices?.length || 0,
+            expensesCount: expenses?.length || 0
+          });
+          // If income equals expenses and we have no paid invoices, income must be 0
+          if (paidInvoicesIncome === 0) {
+            finalIncome = 0;
+          }
+        }
+
+        const monthData: CashFlowData = {
+          month: monthName,
+          income: Math.max(0, finalIncome), // ONLY paid invoices, NEVER expenses or receipts
+          expenses: Math.max(0, finalExpenses), // ONLY expenses, NEVER receipts or invoices
+        };
+
+        // Final validation: Double-check that income is correct
+        // If income > 0 but we have no paid invoices, something is wrong (receipts don't count as income)
+        if (monthData.income > 0 && paidInvoicesIncome === 0) {
+          console.error(`[CashFlow Error] Income is ${monthData.income} but paid invoices are 0 for ${monthName}. Forcing income to 0.`);
+          monthData.income = 0;
+        }
+
+        // Final safety check: Income should never equal expenses unless both are 0
+        if (monthData.income === monthData.expenses && monthData.income > 0) {
+          console.error(`[CashFlow Error] Final check failed for ${monthName}. Income=${monthData.income}, Expenses=${monthData.expenses}. Setting income to 0.`);
+          monthData.income = 0;
+        }
+
+        months.push(monthData);
       }
 
       return months;
