@@ -41,6 +41,8 @@ import {
   Wallet,
   RefreshCw,
   Radar,
+  Eye,
+  Download,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ExpenseDialog } from "@/components/expenses/ExpenseDialog";
@@ -66,6 +68,9 @@ import { useHasDelegatedAuthority } from "@/hooks/useExpenseDelegations";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/useCompany";
 import { formatCurrency } from "@/lib/utils";
+import { useReceipts } from "@/hooks/useReceipts";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 const statusConfig = {
   approved: {
@@ -96,6 +101,7 @@ const Expenses = () => {
   const [expenseToReject, setExpenseToReject] = useState<Expense | null>(null);
 
   const { hasFinanceAccess, isAdmin } = useAuth();
+  const { data: receipts } = useReceipts();
   const { data: expenses, isLoading } = useExpenses();
   const { data: stats, isLoading: statsLoading } = useExpenseStats();
   const { data: company } = useCompany();
@@ -151,6 +157,94 @@ const Expenses = () => {
       await rejectExpense.mutateAsync({ id: expenseToReject.id, notes: reason });
       setRejectDialogOpen(false);
       setExpenseToReject(null);
+    }
+  };
+
+  const openReceiptInNewTab = async (fileUrl: string, fileName: string) => {
+    try {
+      // Generate signed URL for private bucket if needed
+      const urlPattern = /storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+?)(?:\?|$)/;
+      const match = fileUrl.match(urlPattern);
+      
+      let finalUrl = fileUrl;
+      
+      if (match) {
+        const bucketName = match[1];
+        let filePath = decodeURIComponent(match[2]).split('?')[0];
+        
+        // Generate signed URL for private bucket
+        const { data, error } = await supabase.storage
+          .from(bucketName)
+          .createSignedUrl(filePath, 3600); // 1 hour expiry
+        
+        if (!error && data?.signedUrl) {
+          finalUrl = data.signedUrl;
+        }
+      }
+
+      // Open document in new tab
+      window.open(finalUrl, "_blank");
+    } catch (error) {
+      console.error("Error opening receipt:", error);
+      toast({
+        title: "Error",
+        description: "Failed to open receipt. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const downloadReceipt = async (fileUrl: string, fileName: string) => {
+    try {
+      // Generate signed URL for private bucket if needed
+      const urlPattern = /storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+?)(?:\?|$)/;
+      const match = fileUrl.match(urlPattern);
+      
+      let finalUrl = fileUrl;
+      
+      if (match) {
+        const bucketName = match[1];
+        let filePath = decodeURIComponent(match[2]).split('?')[0];
+        
+        // Generate signed URL for private bucket
+        const { data, error } = await supabase.storage
+          .from(bucketName)
+          .createSignedUrl(filePath, 3600); // 1 hour expiry
+        
+        if (!error && data?.signedUrl) {
+          finalUrl = data.signedUrl;
+        }
+      }
+
+      // Fetch the file as a blob to force download
+      const response = await fetch(finalUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch file');
+      }
+      
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      
+      // Create download link
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = fileName || "receipt";
+      // Don't set target="_blank" for downloads - it can cause the file to open instead
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up blob URL after a short delay
+      setTimeout(() => {
+        window.URL.revokeObjectURL(blobUrl);
+      }, 100);
+    } catch (error) {
+      console.error("Error downloading receipt:", error);
+      toast({
+        title: "Error",
+        description: "Failed to download receipt. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -395,10 +489,44 @@ const Expenses = () => {
                       </TableCell>
                       <TableCell>
                         {expense.receipt_id ? (
-                          <Badge variant="success" className="gap-1">
-                            <Receipt className="h-3 w-3" />
-                            Attached
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="success" className="gap-1">
+                              <Receipt className="h-3 w-3" />
+                              Attached
+                            </Badge>
+                            {(() => {
+                              const receipt = receipts?.find((r) => r.id === expense.receipt_id);
+                              if (receipt?.file_url) {
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      className="h-7 w-7"
+                                      onClick={() => {
+                                        openReceiptInNewTab(receipt.file_url, receipt.receipt_number || "Receipt");
+                                      }}
+                                      title="View receipt"
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      className="h-7 w-7"
+                                      onClick={() => {
+                                        downloadReceipt(receipt.file_url, receipt.receipt_number || "Receipt");
+                                      }}
+                                      title="Download receipt"
+                                    >
+                                      <Download className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                         ) : (
                           <Badge variant="muted">Missing</Badge>
                         )}
@@ -516,6 +644,7 @@ const Expenses = () => {
         onConfirm={handleRejectConfirm}
         isLoading={rejectExpense.isPending}
       />
+
     </DashboardLayout>
   );
 };

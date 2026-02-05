@@ -202,6 +202,151 @@ const Statement = () => {
     return ['xlsx', 'xls', 'csv'].includes(ext);
   };
 
+  const openDocumentInNewTab = async (statement: any) => {
+    if (!statement.file_url) return;
+
+    try {
+      let fileUrl = statement.file_url;
+      
+      // Generate signed URL for private bucket if needed
+      const urlPattern = /storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+?)(?:\?|$)/;
+      const match = statement.file_url.match(urlPattern);
+      
+      if (match) {
+        const bucketName = match[1];
+        let filePath = decodeURIComponent(match[2]).split('?')[0];
+        
+        // Generate signed URL for private bucket
+        const { data, error } = await supabase.storage
+          .from(bucketName)
+          .createSignedUrl(filePath, 3600); // 1 hour expiry
+        
+        if (!error && data?.signedUrl) {
+          fileUrl = data.signedUrl;
+        }
+      }
+
+      if (isExcelFile(statement.file_name)) {
+        // For Excel files, load and display in table format
+        const response = await fetch(fileUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // Get all data including empty cells
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+          header: 1, 
+          defval: '',
+          blankrows: false 
+        }) as any[][];
+        
+        // Find the maximum number of columns
+        const maxCols = Math.max(...jsonData.map(row => row.length), 0);
+        
+        // Pad all rows to have the same number of columns
+        const paddedData = jsonData.map(row => {
+          const paddedRow = [...row];
+          while (paddedRow.length < maxCols) {
+            paddedRow.push('');
+          }
+          return paddedRow;
+        });
+
+        // Create HTML content for the new window
+        const htmlContent = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>${statement.file_name}</title>
+              <style>
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                  margin: 0;
+                  padding: 20px;
+                  background: #f5f5f5;
+                }
+                .container {
+                  background: white;
+                  border-radius: 8px;
+                  padding: 20px;
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                }
+                h1 {
+                  margin: 0 0 20px 0;
+                  color: #1a1a1a;
+                }
+                table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  margin-top: 20px;
+                  background: white;
+                }
+                th {
+                  background: #f8f9fa;
+                  padding: 12px;
+                  text-align: left;
+                  font-weight: 600;
+                  border: 1px solid #e0e0e0;
+                  position: sticky;
+                  top: 0;
+                  z-index: 10;
+                }
+                td {
+                  padding: 10px 12px;
+                  border: 1px solid #e0e0e0;
+                  word-break: break-word;
+                }
+                tr:hover {
+                  background: #f8f9fa;
+                }
+                .loading {
+                  text-align: center;
+                  padding: 40px;
+                  color: #666;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <h1>${statement.file_name}</h1>
+                <table>
+                  <thead>
+                    <tr>
+                      ${paddedData[0]?.map((_, idx) => `<th>${paddedData[0][idx] || `Column ${idx + 1}`}</th>`).join('') || ''}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${paddedData.slice(1).map(row => 
+                      `<tr>${row.map(cell => `<td>${cell !== undefined && cell !== null ? String(cell) : '—'}</td>`).join('')}</tr>`
+                    ).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </body>
+          </html>
+        `;
+
+        // Open new window and write HTML
+        const newWindow = window.open('', '_blank');
+        if (newWindow) {
+          newWindow.document.write(htmlContent);
+          newWindow.document.close();
+        }
+      } else {
+        // For PDFs/images, open directly
+        window.open(fileUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error opening document:', error);
+      toast({
+        title: "Error",
+        description: "Failed to open document. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const extractBalanceFromSummary = (data: any[][], headerRowIndex: number, summaryInfo: any) => {
     // Extract opening and closing balance from the summary section
     // Handle both cases: single row with label+value, or header row + value row
@@ -1861,9 +2006,7 @@ const Statement = () => {
                           size="icon"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (statement.file_url) {
-                              window.open(statement.file_url, "_blank");
-                            }
+                            openDocumentInNewTab(statement);
                           }}
                           title="View Document"
                         >
@@ -1875,7 +2018,14 @@ const Statement = () => {
                           onClick={(e) => {
                             e.stopPropagation();
                             if (statement.file_url) {
-                              window.open(statement.file_url, "_blank");
+                              // Download the file
+                              const link = document.createElement("a");
+                              link.href = statement.file_url;
+                              link.download = statement.file_name;
+                              link.target = "_blank";
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
                             }
                           }}
                           title="Download"
@@ -2212,6 +2362,7 @@ const Statement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
     </DashboardLayout>
   );
 };

@@ -253,7 +253,19 @@ export function ExpenseDialog({
   }, [formData.category_id, categories]);
 
   const handleSubmit = async () => {
-    if (!formData.description || !formData.amount) return;
+    // Validate mandatory fields
+    if (!formData.description || !formData.amount) {
+      const missingFields: string[] = [];
+      if (!formData.description) missingFields.push("Description");
+      if (!formData.amount) missingFields.push("Amount");
+      
+      toast({
+        title: "Missing required fields",
+        description: `Please fill in the following mandatory fields: ${missingFields.join(", ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       let receiptId = formData.receipt_id || null;
@@ -273,13 +285,29 @@ export function ExpenseDialog({
 
       // If a new file was uploaded, create a receipt record first
       if (uploadedFile && !receiptId) {
+        // Get company_id from user's profile (for new expenses) or from expense (for editing)
+        let companyId: string | null = null;
+        if (isEditing && expense?.company_id) {
+          companyId = expense.company_id;
+        } else if (user?.id) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("company_id")
+            .eq("id", user.id)
+            .maybeSingle();
+          companyId = profile?.company_id || null;
+        }
+
         // Generate receipt number with company prefix if available
-        const { data: company } = await supabase
-          .from("companies")
-          .select("receipt_prefix")
-          .eq("id", expense.company_id)
-          .single();
-        const receiptPrefix = (company as any)?.receipt_prefix || "RCP";
+        let receiptPrefix = "RCP";
+        if (companyId) {
+          const { data: company } = await supabase
+            .from("companies")
+            .select("receipt_prefix")
+            .eq("id", companyId)
+            .maybeSingle();
+          receiptPrefix = (company as any)?.receipt_prefix || "RCP";
+        }
         const receiptNumber = `${receiptPrefix}-${Date.now().toString().slice(-8)}`;
         
         const { data: newReceipt, error: receiptError } = await supabase
@@ -310,19 +338,25 @@ export function ExpenseDialog({
         receipt_id: receiptId,
       };
 
+      let createdExpenseId: string | null = null;
+
       if (isEditing && expense) {
         await updateExpense.mutateAsync({
           id: expense.id,
           expense: expenseData,
         });
+        createdExpenseId = expense.id;
       } else {
-        await createExpense.mutateAsync(expenseData);
+        const result = await createExpense.mutateAsync(expenseData);
+        createdExpenseId = result.expense.id;
       }
 
-      // Update the receipt's linked_expense_id
-      if (receiptId) {
-        // We need to get the expense ID after creation
-        // For now, this is handled by the mutation
+      // Update the receipt's linked_expense_id if we created a new receipt
+      if (receiptId && createdExpenseId) {
+        await supabase
+          .from("receipts")
+          .update({ linked_expense_id: createdExpenseId })
+          .eq("id", receiptId);
       }
 
       onOpenChange(false);
