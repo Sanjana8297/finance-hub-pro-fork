@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,9 @@ import {
 } from "@/components/ui/select";
 
 const Transactions = () => {
+  console.log('🚀 [Transactions] Component rendering');
+  const location = useLocation();
+  const navigate = useNavigate();
   const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
   const [excelData, setExcelData] = useState<any[]>([]);
   const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
@@ -105,6 +109,8 @@ const Transactions = () => {
   const [notesValues, setNotesValues] = useState<Record<string, string>>({});
   const [unsavedCategoriesDialogOpen, setUnsavedCategoriesDialogOpen] = useState(false);
   const [pendingBackNavigation, setPendingBackNavigation] = useState(false);
+  const [pendingNavigationPath, setPendingNavigationPath] = useState<string | null>(null);
+  const navigationBlockedRef = useRef(false);
   
   // Filter states
   const [filterCategory, setFilterCategory] = useState<string>("");
@@ -258,14 +264,21 @@ const Transactions = () => {
     }).format(amount);
   };
 
-  // Check if there are any unsaved categories
-  const hasUnsavedCategories = () => {
-    return Object.keys(newCategoryInputs).some(
+  // Check if there are any unsaved categories (memoized for stable reference)
+  const hasUnsavedCategories = useMemo(() => {
+    const result = Object.keys(newCategoryInputs).some(
       (transactionId) => 
         showNewCategoryInput[transactionId] && 
         newCategoryInputs[transactionId]?.trim()
     );
-  };
+    console.log('[hasUnsavedCategories] Computed:', {
+      result,
+      newCategoryInputsCount: Object.keys(newCategoryInputs).length,
+      newCategoryInputs,
+      showNewCategoryInput
+    });
+    return result;
+  }, [newCategoryInputs, showNewCategoryInput]);
 
   // Get all unsaved category transactions
   const getUnsavedCategoryTransactions = () => {
@@ -279,13 +292,11 @@ const Transactions = () => {
   // Save all unsaved categories
   const saveAllUnsavedCategories = async () => {
     const unsavedTransactions = getUnsavedCategoryTransactions();
+    console.log('[Save All] Unsaved transactions:', unsavedTransactions);
     
     if (unsavedTransactions.length === 0) {
       setUnsavedCategoriesDialogOpen(false);
-      if (pendingBackNavigation) {
-        setPendingBackNavigation(false);
-        setSelectedStatementId(null);
-      }
+      handleNavigationAfterSave();
       return;
     }
 
@@ -337,23 +348,199 @@ const Transactions = () => {
     });
 
     setUnsavedCategoriesDialogOpen(false);
+    handleNavigationAfterSave();
+  };
 
-    // If there was a pending navigation, proceed with it
+  // Handle navigation after saving or discarding
+  const handleNavigationAfterSave = useCallback(() => {
+    navigationBlockedRef.current = false;
+    isNavigatingRef.current = true;
+    
     if (pendingBackNavigation) {
       setPendingBackNavigation(false);
       setSelectedStatementId(null);
+      isNavigatingRef.current = false;
+    } else if (pendingNavigationPath && pendingNavigationPath !== location.pathname) {
+      const path = pendingNavigationPath;
+      setPendingNavigationPath(null);
+      // Use setTimeout to ensure state updates are processed first
+      setTimeout(() => {
+        navigate(path);
+        isNavigatingRef.current = false;
+      }, 0);
+    } else {
+      setPendingNavigationPath(null);
+      isNavigatingRef.current = false;
     }
-  };
+  }, [pendingBackNavigation, pendingNavigationPath, location.pathname, navigate]);
 
   // Handle back button click
   const handleBackClick = () => {
-    if (hasUnsavedCategories()) {
+    if (hasUnsavedCategories) {
       setPendingBackNavigation(true);
       setUnsavedCategoriesDialogOpen(true);
     } else {
       setSelectedStatementId(null);
     }
   };
+
+  // Handle navigation away from page
+  const handleNavigationAttempt = useCallback((targetPath: string) => {
+    if (hasUnsavedCategories && selectedStatementId) {
+      navigationBlockedRef.current = true;
+      setPendingNavigationPath(targetPath);
+      setUnsavedCategoriesDialogOpen(true);
+      return false; // Block navigation
+    }
+    return true; // Allow navigation
+  }, [selectedStatementId, hasUnsavedCategories]);
+
+  // Intercept browser back/forward button and sidebar link clicks
+  useEffect(() => {
+    if (!selectedStatementId) {
+      return;
+    }
+
+    // Listen for popstate (browser back/forward button)
+    const handlePopState = (e: PopStateEvent) => {
+      if (hasUnsavedCategories) {
+        // Prevent navigation by pushing current state back
+        window.history.pushState(null, '', location.pathname);
+        setPendingNavigationPath(location.pathname);
+        setUnsavedCategoriesDialogOpen(true);
+      }
+    };
+
+    // Intercept ALL link clicks (including React Router Links)
+    const handleLinkClick = (e: MouseEvent) => {
+      if (!hasUnsavedCategories) return;
+      
+      // Find the closest link element
+      const target = e.target as HTMLElement;
+      const link = target.closest('a[href]') as HTMLAnchorElement;
+      
+      if (link) {
+        const href = link.getAttribute('href');
+        // Only intercept internal navigation
+        if (href && href.startsWith('/') && href !== location.pathname) {
+          console.log('🛑 [Navigation Block] Intercepted link click:', href);
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          
+          // Show dialog
+          setPendingNavigationPath(href);
+          setUnsavedCategoriesDialogOpen(true);
+          return false;
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    // Use capture phase to intercept early, before React Router handles it
+    document.addEventListener('click', handleLinkClick, true);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      document.removeEventListener('click', handleLinkClick, true);
+    };
+  }, [selectedStatementId, location.pathname, hasUnsavedCategories]);
+
+
+  // Monitor location changes to intercept ALL navigation (including Link clicks from sidebar)
+  const prevLocationRef = useRef(location.pathname);
+  const isNavigatingRef = useRef(false);
+  const locationChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Initialize prevLocationRef on mount
+  useEffect(() => {
+    prevLocationRef.current = location.pathname;
+    console.log('[Navigation Block] Initialized with path:', location.pathname);
+  }, []);
+  
+  useEffect(() => {
+    // This should ALWAYS log when effect runs
+    console.log('🔵🔵🔵 [Navigation Block] ===== EFFECT RUNNING =====');
+    console.log('🔵 [Navigation Block] State:', {
+      selectedStatementId,
+      currentPath: location.pathname,
+      prevPath: prevLocationRef.current,
+      hasUnsavedCategories,
+      isNavigating: isNavigatingRef.current
+    });
+    
+    // Force a log to verify effect is running
+    if (selectedStatementId) {
+      console.log('✅ [Navigation Block] selectedStatementId IS SET:', selectedStatementId);
+    } else {
+      console.log('❌ [Navigation Block] selectedStatementId IS NOT SET');
+    }
+
+    if (!selectedStatementId) {
+      console.log('🔵 [Navigation Block] No selectedStatementId, skipping block logic');
+      prevLocationRef.current = location.pathname;
+      isNavigatingRef.current = false;
+      if (locationChangeTimeoutRef.current) {
+        clearTimeout(locationChangeTimeoutRef.current);
+        locationChangeTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    // Debug logging
+    console.log('🔵 [Navigation Block] Location check:', {
+      prevPath: prevLocationRef.current,
+      currentPath: location.pathname,
+      hasUnsavedCategories,
+      isNavigating: isNavigatingRef.current,
+      selectedStatementId,
+      pathChanged: location.pathname !== prevLocationRef.current,
+      shouldBlock: location.pathname !== prevLocationRef.current && hasUnsavedCategories && !isNavigatingRef.current
+    });
+
+    // If location changed and we have unsaved categories, block it
+    if (location.pathname !== prevLocationRef.current && hasUnsavedCategories && !isNavigatingRef.current) {
+      // Store the target path before reverting
+      const targetPath = location.pathname;
+      
+      console.log('🛑 [Navigation Block] ⚠️ BLOCKING NAVIGATION ⚠️');
+      console.log('🛑 [Navigation Block] Target path:', targetPath);
+      console.log('🛑 [Navigation Block] Reverting to:', prevLocationRef.current);
+      
+      // Immediately revert to previous location
+      isNavigatingRef.current = true;
+      navigate(prevLocationRef.current, { replace: true });
+      
+      // Set the pending navigation path and show dialog
+      setPendingNavigationPath(targetPath);
+      setUnsavedCategoriesDialogOpen(true);
+      
+      // Reset the flag after a short delay to allow the revert to complete
+      if (locationChangeTimeoutRef.current) {
+        clearTimeout(locationChangeTimeoutRef.current);
+      }
+      locationChangeTimeoutRef.current = setTimeout(() => {
+        isNavigatingRef.current = false;
+        locationChangeTimeoutRef.current = null;
+      }, 100);
+    } else if (location.pathname === prevLocationRef.current) {
+      isNavigatingRef.current = false;
+      if (locationChangeTimeoutRef.current) {
+        clearTimeout(locationChangeTimeoutRef.current);
+        locationChangeTimeoutRef.current = null;
+      }
+      prevLocationRef.current = location.pathname;
+    } else {
+      // Location changed but no unsaved categories or already navigating
+      console.log('[Navigation Block] Allowing navigation:', {
+        reason: hasUnsavedCategories ? 'has unsaved but isNavigating=true' : 'no unsaved categories',
+        targetPath: location.pathname
+      });
+      prevLocationRef.current = location.pathname;
+      isNavigatingRef.current = false;
+    }
+  }, [location.pathname, selectedStatementId, navigate, hasUnsavedCategories]);
 
   // Extract mode of payment from description (text before first "/")
   const extractModeOfPayment = (description: string | null) => {
@@ -745,7 +932,9 @@ const Transactions = () => {
     return <span className="text-muted-foreground">—</span>;
   };
 
+  // Debug: Log when we're about to render Transaction Details
   if (selectedStatementId && selectedStatement) {
+    console.log('🎯 [Transactions] Rendering Transaction Details view for statement:', selectedStatementId);
     return (
       <DashboardLayout>
         <div className="mb-8">
@@ -2212,6 +2401,8 @@ const Transactions = () => {
           setUnsavedCategoriesDialogOpen(open);
           if (!open) {
             setPendingBackNavigation(false);
+            setPendingNavigationPath(null);
+            navigationBlockedRef.current = false;
           }
         }}
       >
@@ -2248,8 +2439,8 @@ const Transactions = () => {
                   });
                 });
                 setUnsavedCategoriesDialogOpen(false);
-                setPendingBackNavigation(false);
-                setSelectedStatementId(null);
+                navigationBlockedRef.current = false;
+                handleNavigationAfterSave();
               }}
               className="bg-background border border-input hover:bg-accent hover:text-accent-foreground"
             >
