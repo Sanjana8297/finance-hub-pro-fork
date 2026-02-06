@@ -14,6 +14,7 @@ import Expenses from "./pages/Expenses";
 import Employees from "./pages/Employees";
 import Payroll from "./pages/Payroll";
 import Statement from "./pages/Statement";
+import StatementTransactions from "./pages/StatementTransactions";
 import Transactions from "./pages/Transactions";
 import Reports from "./pages/Reports";
 import AuditLogs from "./pages/AuditLogs";
@@ -97,6 +98,14 @@ const App = () => (
               element={
                 <ProtectedRoute requiredRoles={["super_admin", "admin", "finance_manager", "accountant"]}>
                   <Statement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/statement/:statementId/transactions"
+              element={
+                <ProtectedRoute requiredRoles={["super_admin", "admin", "finance_manager", "accountant"]}>
+                  <StatementTransactions />
                 </ProtectedRoute>
               }
             />

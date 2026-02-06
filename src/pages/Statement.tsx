@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,10 +47,10 @@ import * as XLSX from "xlsx";
 import { useMemo } from "react";
 
 const Statement = () => {
+  const navigate = useNavigate();
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [deleteStatementId, setDeleteStatementId] = useState<string | null>(null);
-  const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewingStatement, setViewingStatement] = useState<any>(null);
   const [excelData, setExcelData] = useState<any[]>([]);
@@ -980,29 +981,10 @@ const Statement = () => {
   };
 
   const { data: statements, isLoading } = useBankStatements();
-  const { data: transactions, isLoading: transactionsLoading } = useBankStatementTransactions(selectedStatementId);
   const createStatement = useCreateBankStatement();
   const deleteStatement = useDeleteBankStatement();
   const { data: company } = useCompany();
   const { user } = useAuth();
-  
-  // Sort transactions by metadata.transaction_date in descending order (newest first)
-  const sortedTransactions = useMemo(() => {
-    if (!transactions || transactions.length === 0) return [];
-    
-    return [...transactions].sort((a: any, b: any) => {
-      // Get transaction date from metadata, fallback to transaction_date column
-      const dateA = getTransactionDateFromMetadata(a.metadata) || a.transaction_date;
-      const dateB = getTransactionDateFromMetadata(b.metadata) || b.transaction_date;
-      
-      // Parse dates
-      const dateAValue = dateA ? new Date(dateA).getTime() : 0;
-      const dateBValue = dateB ? new Date(dateB).getTime() : 0;
-      
-      // Sort in descending order (newest first)
-      return dateBValue - dateAValue;
-    });
-  }, [transactions]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -1970,9 +1952,7 @@ const Statement = () => {
                   <TableRow
                     key={statement.id}
                     className="cursor-pointer"
-                    onClick={() => setSelectedStatementId(
-                      selectedStatementId === statement.id ? null : statement.id
-                    )}
+                    onClick={() => navigate(`/statement/${statement.id}/transactions`)}
                   >
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -2059,211 +2039,6 @@ const Statement = () => {
           )}
         </CardContent>
       </Card>
-
-      {/* Transactions Detail */}
-      {selectedStatementId && (
-        <Card className="mt-6">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Transaction Details</CardTitle>
-                <CardDescription>
-                  Showing {sortedTransactions?.length || 0} transactions from the selected statement
-                </CardDescription>
-              </div>
-              {sortedTransactions && sortedTransactions.length > 0 && (
-                <div className="flex gap-6 text-sm">
-                  <div className="text-center">
-                    <p className="text-muted-foreground text-xs">Debit Transactions</p>
-                    <p className="text-red-600 font-bold text-lg">
-                      {(sortedTransactions as any[]).filter((t: any) => t.debit_amount > 0).length}
-                    </p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-muted-foreground text-xs">Credit Transactions</p>
-                    <p className="text-green-600 font-bold text-lg">
-                      {(sortedTransactions as any[]).filter((t: any) => t.credit_amount > 0).length}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {transactionsLoading ? (
-              <div className="p-6">
-                <Skeleton className="h-10 w-full mb-2" />
-                <Skeleton className="h-10 w-full mb-2" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ) : sortedTransactions && sortedTransactions.length > 0 ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-16">#</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Value Date</TableHead>
-                      <TableHead className="min-w-[250px]">Transaction Description</TableHead>
-                      <TableHead>Reference</TableHead>
-                      <TableHead className="text-right min-w-[140px] font-semibold">Debit Amount</TableHead>
-                      <TableHead className="text-right min-w-[140px] font-semibold">Credit Amount</TableHead>
-                      <TableHead className="text-right min-w-[140px] font-semibold">Balance</TableHead>
-                      <TableHead>Type</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sortedTransactions?.map((transaction: any, index: number) => {
-                      const metadata = transaction.metadata as any;
-                      const allColumns = metadata?.all_columns || [];
-                      
-                      return (
-                        <TableRow key={transaction.id}>
-                          <TableCell className="font-medium text-muted-foreground">
-                            {index + 1}
-                          </TableCell>
-                          <TableCell>
-                            {(() => {
-                              // Extract Transaction Date from metadata column in its original format
-                              const metadataDate = getTransactionDateFromMetadataOriginal(metadata);
-                              // Use metadata date if available (already in original format like "14-May-2025")
-                              if (metadataDate) {
-                                return metadataDate;
-                              } else if (transaction.transaction_date) {
-                                // Fallback to transaction_date if metadata doesn't have date
-                                return format(new Date(transaction.transaction_date), "MMM d, yyyy");
-                              } else {
-                                return "—";
-                              }
-                            })()}
-                          </TableCell>
-                          <TableCell>
-                            {(() => {
-                              // Extract Value Date from metadata column in its original format
-                              const metadataValueDate = getValueDateFromMetadataOriginal(metadata);
-                              // Use metadata date if available (already in original format like "14-May-2025")
-                              if (metadataValueDate) {
-                                return metadataValueDate;
-                              } else if (transaction.value_date) {
-                                // Fallback to value_date if metadata doesn't have date
-                                return format(new Date(transaction.value_date), "MMM d, yyyy");
-                              } else {
-                                return "—";
-                              }
-                            })()}
-                          </TableCell>
-                          <TableCell className="min-w-[400px] max-w-[600px]">
-                            <div className="space-y-1">
-                              {/* Show full transaction description exactly as in Excel */}
-                              <div className="text-sm font-medium break-words leading-relaxed" title={transaction.description}>
-                                {transaction.description || "—"}
-                              </div>
-                              {allColumns.length > 0 && (
-                                <details className="mt-2">
-                                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                                    View all {allColumns.length} columns
-                                  </summary>
-                                  <div className="mt-2 text-xs space-y-1 max-h-60 overflow-y-auto bg-muted/50 p-3 rounded border">
-                                    {allColumns.map((col: any, idx: number) => (
-                                      <div key={idx} className="flex justify-between gap-4 py-1 border-b border-border/50 last:border-0">
-                                        <span className="font-semibold text-muted-foreground min-w-[120px]">{col.header}:</span>
-                                        <span className="text-foreground break-words text-right flex-1">{String(col.value || "—")}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </details>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm">{transaction.reference_number || "—"}</span>
-                          </TableCell>
-                          <TableCell className="text-right text-red-600 font-semibold">
-                            {(() => {
-                              const metadata = transaction.metadata as any;
-                              const originalDebit = metadata?.original_debit;
-                              
-                              // Always show debit amount if it exists
-                              if (transaction.debit_amount > 0) {
-                                // Prefer original Excel format, fallback to formatted
-                                if (originalDebit && originalDebit !== "" && originalDebit !== "0") {
-                                  return (
-                                    <div className="whitespace-nowrap font-semibold">
-                                      {originalDebit}
-                                    </div>
-                                  );
-                                }
-                                return (
-                                  <div className="whitespace-nowrap font-semibold">
-                                    {formatCurrency(transaction.debit_amount)}
-                                  </div>
-                                );
-                              }
-                              return <span className="text-muted-foreground">—</span>;
-                            })()}
-                          </TableCell>
-                          <TableCell className="text-right text-green-600 font-semibold">
-                            {(() => {
-                              const metadata = transaction.metadata as any;
-                              const originalCredit = metadata?.original_credit;
-                              
-                              // Always show credit amount if it exists
-                              if (transaction.credit_amount > 0) {
-                                // ALWAYS prefer original Excel format if available (preserves exact formatting like "30,000.00")
-                                if (originalCredit && originalCredit !== "" && originalCredit !== "0" && originalCredit !== "0.00") {
-                                  return (
-                                    <div className="whitespace-nowrap font-semibold">
-                                      {originalCredit}
-                                    </div>
-                                  );
-                                }
-                                // Fallback to formatted currency only if original not available
-                                return (
-                                  <div className="whitespace-nowrap font-semibold">
-                                    {formatCurrency(transaction.credit_amount)}
-                                  </div>
-                                );
-                              }
-                              return <span className="text-muted-foreground">—</span>;
-                            })()}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {(() => {
-                              const metadata = transaction.metadata as any;
-                              const originalBalance = metadata?.original_balance;
-                              // Show original Excel format if available, otherwise format the number
-                              if (originalBalance && originalBalance !== "" && originalBalance !== "0") {
-                                return <span className="whitespace-nowrap">{originalBalance}</span>;
-                              }
-                              return transaction.balance !== null && transaction.balance !== undefined ? (
-                                <span className="whitespace-nowrap">{formatCurrency(transaction.balance)}</span>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              );
-                            })()}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={
-                              transaction.transaction_type === "debit" ? "destructive" :
-                              transaction.transaction_type === "credit" ? "default" : "secondary"
-                            }>
-                              {transaction.transaction_type}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <div className="p-6 text-center text-muted-foreground">
-                No transactions found. The Excel file may not have been parsed correctly.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* Document Viewer Modal */}
       {viewerOpen && viewingStatement && (
