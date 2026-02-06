@@ -103,6 +103,8 @@ const Transactions = () => {
   const [newCategoryInputs, setNewCategoryInputs] = useState<Record<string, string>>({});
   const [showNewCategoryInput, setShowNewCategoryInput] = useState<Record<string, boolean>>({});
   const [notesValues, setNotesValues] = useState<Record<string, string>>({});
+  const [unsavedCategoriesDialogOpen, setUnsavedCategoriesDialogOpen] = useState(false);
+  const [pendingBackNavigation, setPendingBackNavigation] = useState(false);
   
   // Filter states
   const [filterCategory, setFilterCategory] = useState<string>("");
@@ -254,6 +256,103 @@ const Transactions = () => {
       style: "currency",
       currency: company?.currency || "INR",
     }).format(amount);
+  };
+
+  // Check if there are any unsaved categories
+  const hasUnsavedCategories = () => {
+    return Object.keys(newCategoryInputs).some(
+      (transactionId) => 
+        showNewCategoryInput[transactionId] && 
+        newCategoryInputs[transactionId]?.trim()
+    );
+  };
+
+  // Get all unsaved category transactions
+  const getUnsavedCategoryTransactions = () => {
+    return Object.keys(newCategoryInputs).filter(
+      (transactionId) => 
+        showNewCategoryInput[transactionId] && 
+        newCategoryInputs[transactionId]?.trim()
+    );
+  };
+
+  // Save all unsaved categories
+  const saveAllUnsavedCategories = async () => {
+    const unsavedTransactions = getUnsavedCategoryTransactions();
+    
+    if (unsavedTransactions.length === 0) {
+      setUnsavedCategoriesDialogOpen(false);
+      if (pendingBackNavigation) {
+        setPendingBackNavigation(false);
+        setSelectedStatementId(null);
+      }
+      return;
+    }
+
+    // Save each unsaved category
+    const savePromises = unsavedTransactions.map((transactionId) => {
+      const categoryName = newCategoryInputs[transactionId]?.trim();
+      if (!categoryName) {
+        return Promise.resolve();
+      }
+
+      return new Promise<void>((resolve) => {
+        createCategory.mutate(categoryName, {
+          onSuccess: (newCategory) => {
+            const finalCategoryName = (newCategory as any)?.category_name || categoryName.trim();
+            updateTransaction.mutate({
+              transactionId,
+              category: finalCategoryName
+            }, {
+              onSuccess: () => {
+                // Clear the input state
+                setShowNewCategoryInput(prev => ({
+                  ...prev,
+                  [transactionId]: false
+                }));
+                setNewCategoryInputs(prev => {
+                  const updated = { ...prev };
+                  delete updated[transactionId];
+                  return updated;
+                });
+                resolve();
+              },
+              onError: () => {
+                resolve(); // Continue even if one fails
+              }
+            });
+          },
+          onError: () => {
+            resolve(); // Continue even if one fails
+          }
+        });
+      });
+    });
+
+    await Promise.all(savePromises);
+    
+    toast({
+      title: "Categories saved",
+      description: `Successfully saved ${unsavedTransactions.length} categor${unsavedTransactions.length === 1 ? 'y' : 'ies'}.`,
+    });
+
+    setUnsavedCategoriesDialogOpen(false);
+
+    // If there was a pending navigation, proceed with it
+    if (pendingBackNavigation) {
+      setPendingBackNavigation(false);
+      setSelectedStatementId(null);
+    }
+  };
+
+  // Handle back button click
+  const handleBackClick = () => {
+    if (hasUnsavedCategories()) {
+      setPendingBackNavigation(true);
+      setUnsavedCategoriesDialogOpen(true);
+    } else {
+      setSelectedStatementId(null);
+    }
   };
 
   // Extract mode of payment from description (text before first "/")
@@ -652,7 +751,7 @@ const Transactions = () => {
         <div className="mb-8">
           <Button
             variant="ghost"
-            onClick={() => setSelectedStatementId(null)}
+            onClick={handleBackClick}
             className="mb-4"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -2100,6 +2199,73 @@ const Transactions = () => {
                 </>
               ) : (
                 "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Unsaved Categories Warning Dialog */}
+      <AlertDialog 
+        open={unsavedCategoriesDialogOpen} 
+        onOpenChange={(open) => {
+          setUnsavedCategoriesDialogOpen(open);
+          if (!open) {
+            setPendingBackNavigation(false);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Categories</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have {getUnsavedCategoryTransactions().length} unsaved categor{getUnsavedCategoryTransactions().length === 1 ? 'y' : 'ies'}. 
+              Do you want to save all categories before leaving this page?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel 
+              onClick={() => {
+                setUnsavedCategoriesDialogOpen(false);
+                setPendingBackNavigation(false);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                // Discard changes and navigate
+                const unsavedTransactions = getUnsavedCategoryTransactions();
+                unsavedTransactions.forEach((transactionId) => {
+                  setShowNewCategoryInput(prev => ({
+                    ...prev,
+                    [transactionId]: false
+                  }));
+                  setNewCategoryInputs(prev => {
+                    const updated = { ...prev };
+                    delete updated[transactionId];
+                    return updated;
+                  });
+                });
+                setUnsavedCategoriesDialogOpen(false);
+                setPendingBackNavigation(false);
+                setSelectedStatementId(null);
+              }}
+              className="bg-background border border-input hover:bg-accent hover:text-accent-foreground"
+            >
+              Discard Changes
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={saveAllUnsavedCategories}
+              disabled={createCategory.isPending || updateTransaction.isPending}
+            >
+              {createCategory.isPending || updateTransaction.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save All"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -490,10 +490,10 @@ const Expenses = () => {
                       <TableCell>
                         {expense.receipt_id ? (
                           <div className="flex items-center gap-2">
-                            <Badge variant="success" className="gap-1">
-                              <Receipt className="h-3 w-3" />
-                              Attached
-                            </Badge>
+                          <Badge variant="success" className="gap-1">
+                            <Receipt className="h-3 w-3" />
+                            Attached
+                          </Badge>
                             {(() => {
                               const receipt = receipts?.find((r) => r.id === expense.receipt_id);
                               if (receipt?.file_url) {

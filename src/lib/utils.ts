@@ -26,7 +26,7 @@ export function formatCurrency(
     // Handle negative values
     const isNegative = amount < 0;
     const absAmount = Math.abs(amount);
-    const symbol = getCurrencySymbol(currency);
+      const symbol = getCurrencySymbol(currency);
     const sign = isNegative ? "-" : "";
     
     // Compact format for large numbers (e.g., ₹10.0M, ₹29.3K, -₹5.0K)
