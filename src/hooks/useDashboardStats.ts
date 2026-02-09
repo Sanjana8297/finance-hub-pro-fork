@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useCompany } from "./useCompany";
 
 interface DashboardStats {
   totalReceipts: number;
   receiptsChange: number;
   totalExpenses: number;
   expensesChange: number;
+  expensesNetAmount: number; // Net amount (credit - debit) for expense categories
+  expensesTransactionCount: number; // Transaction count for expense categories
   pendingInvoices: number;
   pendingInvoicesCount: number;
   monthlyProfit: number;
@@ -14,9 +17,27 @@ interface DashboardStats {
 }
 
 export function useDashboardStats() {
+  const { data: company } = useCompany();
+
   return useQuery({
-    queryKey: ["dashboard-stats"],
+    queryKey: ["dashboard-stats", company?.id],
     queryFn: async (): Promise<DashboardStats> => {
+      if (!company?.id) {
+        // Return default values if no company
+        return {
+          totalReceipts: 0,
+          receiptsChange: 0,
+          totalExpenses: 0,
+          expensesChange: 0,
+          expensesNetAmount: 0,
+          expensesTransactionCount: 0,
+          pendingInvoices: 0,
+          pendingInvoicesCount: 0,
+          monthlyProfit: 0,
+          profitChange: 0,
+          overdueInvoices: { count: 0, total: 0 },
+        };
+      }
       const now = new Date();
       const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -35,18 +56,78 @@ export function useDashboardStats() {
         .gte("receipt_date", lastMonthStart.toISOString().split("T")[0])
         .lte("receipt_date", lastMonthEnd.toISOString().split("T")[0]);
 
-      // Fetch expenses for current month
-      const { data: currentExpenses } = await supabase
-        .from("expenses")
-        .select("amount")
-        .gte("expense_date", currentMonthStart.toISOString().split("T")[0]);
+      // Fetch category-based expenses from bank statement transactions ONLY
+      // Categories: 'IT Expenses', 'Office expense', 'Payroll'
+      const expenseCategories = ['IT Expenses', 'Office expense', 'Payroll'];
+      
+      // Get all statement IDs for this company
+      const { data: statements } = await supabase
+        .from("bank_statements" as any)
+        .select("id")
+        .eq("company_id", company.id);
 
-      // Fetch expenses for last month
-      const { data: lastExpenses } = await supabase
-        .from("expenses")
-        .select("amount")
-        .gte("expense_date", lastMonthStart.toISOString().split("T")[0])
-        .lte("expense_date", lastMonthEnd.toISOString().split("T")[0]);
+      let currentMonthCategoryExpenses = 0;
+      let currentMonthCategoryExpensesNet = 0;
+      let currentMonthCategoryTransactionCount = 0;
+      let lastMonthCategoryExpenses = 0;
+      let lastMonthCategoryExpensesNet = 0;
+      let lastMonthCategoryTransactionCount = 0;
+
+      if (statements && statements.length > 0) {
+        const statementIds = (statements as any[]).map((s) => s.id);
+        const currentMonthStartStr = currentMonthStart.toISOString().split("T")[0];
+        const currentMonthEndStr = now.toISOString().split("T")[0];
+        const lastMonthStartStr = lastMonthStart.toISOString().split("T")[0];
+        const lastMonthEndStr = lastMonthEnd.toISOString().split("T")[0];
+
+        // Fetch transactions for current month with expense categories
+        const { data: currentMonthCategoryTransactions } = await supabase
+          .from("bank_statement_transactions" as any)
+          .select("debit_amount, credit_amount, transaction_date")
+          .in("statement_id", statementIds)
+          .in("category", expenseCategories)
+          .gte("transaction_date", currentMonthStartStr)
+          .lte("transaction_date", currentMonthEndStr);
+
+        // Fetch transactions for last month with expense categories
+        const { data: lastMonthCategoryTransactions } = await supabase
+          .from("bank_statement_transactions" as any)
+          .select("debit_amount, credit_amount, transaction_date")
+          .in("statement_id", statementIds)
+          .in("category", expenseCategories)
+          .gte("transaction_date", lastMonthStartStr)
+          .lte("transaction_date", lastMonthEndStr);
+
+        // Calculate totals for current month (net amount = credit - debit)
+        if (currentMonthCategoryTransactions) {
+          currentMonthCategoryTransactionCount = currentMonthCategoryTransactions.length;
+          const totalDebit = (currentMonthCategoryTransactions as any[]).reduce(
+            (sum, t: any) => sum + (Number(t.debit_amount) || 0),
+            0
+          );
+          const totalCredit = (currentMonthCategoryTransactions as any[]).reduce(
+            (sum, t: any) => sum + (Number(t.credit_amount) || 0),
+            0
+          );
+          currentMonthCategoryExpenses = totalDebit;
+          currentMonthCategoryExpensesNet = totalCredit - totalDebit; // Net amount
+        }
+
+        // Calculate totals for last month
+        if (lastMonthCategoryTransactions) {
+          lastMonthCategoryTransactionCount = lastMonthCategoryTransactions.length;
+          const totalDebit = (lastMonthCategoryTransactions as any[]).reduce(
+            (sum, t: any) => sum + (Number(t.debit_amount) || 0),
+            0
+          );
+          const totalCredit = (lastMonthCategoryTransactions as any[]).reduce(
+            (sum, t: any) => sum + (Number(t.credit_amount) || 0),
+            0
+          );
+          lastMonthCategoryExpenses = totalDebit;
+          lastMonthCategoryExpensesNet = totalCredit - totalDebit; // Net amount
+        }
+      }
 
       // Fetch PAID invoices for current month
       // Only paid invoices represent actual income (money received)
@@ -89,8 +170,10 @@ export function useDashboardStats() {
         ? ((totalReceipts - lastTotalReceipts) / lastTotalReceipts) * 100 
         : 0;
 
-      const totalExpenses = currentExpenses?.reduce((sum, e) => sum + Number(e.amount), 0) || 0;
-      const lastTotalExpenses = lastExpenses?.reduce((sum, e) => sum + Number(e.amount), 0) || 0;
+      // Use only category-based expenses (no expenses table)
+      const totalExpenses = currentMonthCategoryExpenses;
+      const lastTotalExpenses = lastMonthCategoryExpenses;
+      
       const expensesChange = lastTotalExpenses > 0 
         ? ((totalExpenses - lastTotalExpenses) / lastTotalExpenses) * 100 
         : 0;
@@ -137,6 +220,8 @@ export function useDashboardStats() {
         receiptsChange,
         totalExpenses,
         expensesChange,
+        expensesNetAmount: currentMonthCategoryExpensesNet,
+        expensesTransactionCount: currentMonthCategoryTransactionCount,
         pendingInvoices: pendingTotal,
         pendingInvoicesCount: pendingInvoices?.length || 0,
         monthlyProfit: monthlyProfit || 0, // Ensure it's never undefined
@@ -147,6 +232,7 @@ export function useDashboardStats() {
         },
       };
     },
+    enabled: !!company?.id,
   });
 }
 

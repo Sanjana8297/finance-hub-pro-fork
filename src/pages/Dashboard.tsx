@@ -11,12 +11,14 @@ import {
   TrendingUp,
   AlertCircle,
   Clock,
-  Plus
+  Plus,
+  Tag
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { useCategoryStats } from "@/hooks/useCategoryStats";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/useCompany";
 import { formatCurrency } from "@/lib/utils";
@@ -25,6 +27,7 @@ import { Link } from "react-router-dom";
 const Dashboard = () => {
   const { profile } = useAuth();
   const { data: stats, isLoading } = useDashboardStats();
+  const { data: categoryStats, isLoading: categoryStatsLoading } = useCategoryStats();
   const { data: company } = useCompany();
 
   const currency = company?.currency || "INR";
@@ -84,11 +87,11 @@ const Dashboard = () => {
             <div className="animate-slide-up opacity-0 stagger-2">
               <StatCard
                 title="Total Expenses"
-                value={formatCurrency(stats?.totalExpenses || 0, currency, { compact: true })}
-                change={formatChange(stats?.expensesChange || 0, true)}
-                changeType={stats?.expensesChange && stats.expensesChange > 0 ? "negative" : "positive"}
+                value={formatCurrency(stats?.expensesNetAmount || 0, currency)}
+                change={`${stats?.expensesTransactionCount || 0} transactions`}
+                changeType="neutral"
                 icon={CreditCard}
-                iconColor="bg-destructive/10 text-destructive"
+                iconColor={(stats?.expensesNetAmount || 0) < 0 ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}
               />
             </div>
             <div className="animate-slide-up opacity-0 stagger-3">
@@ -134,6 +137,45 @@ const Dashboard = () => {
               </Button>
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* Category Stats */}
+      {categoryStats && categoryStats.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-4 text-xl font-semibold">Transaction Categories</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {categoryStatsLoading ? (
+              <>
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-32 w-full" />
+                ))}
+              </>
+            ) : (
+              categoryStats.map((categoryStat, index) => {
+                // Show net amount with color coding
+                const isNetDebit = categoryStat.netAmount < 0;
+                const netAmount = categoryStat.netAmount; // Keep sign for display
+                
+                return (
+                  <div
+                    key={categoryStat.categoryName}
+                    className="animate-slide-up opacity-0"
+                    style={{ animationDelay: `${index * 0.05}s` }}
+                  >
+                    <StatCard
+                      title={categoryStat.categoryName}
+                      value={formatCurrency(netAmount, currency)}
+                      change={`${categoryStat.transactionCount} transactions`}
+                      changeType="neutral"
+                      icon={Tag}
+                      iconColor={isNetDebit ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}
+                    />
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 
