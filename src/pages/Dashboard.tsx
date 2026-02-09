@@ -77,7 +77,7 @@ const Dashboard = () => {
             <div className="animate-slide-up opacity-0 stagger-1">
               <StatCard
                 title="Total Receipts"
-                value={formatCurrency(stats?.totalReceipts || 0, currency, { compact: true })}
+                value={formatCurrency(stats?.totalReceipts || 0, currency)}
                 change={formatChange(stats?.receiptsChange || 0)}
                 changeType={stats?.receiptsChange && stats.receiptsChange >= 0 ? "positive" : "negative"}
                 icon={Receipt}
@@ -97,7 +97,7 @@ const Dashboard = () => {
             <div className="animate-slide-up opacity-0 stagger-3">
               <StatCard
                 title="Pending Invoices"
-                value={formatCurrency(stats?.pendingInvoices || 0, currency, { compact: true })}
+                value={formatCurrency(stats?.pendingInvoices || 0, currency)}
                 change={`${stats?.pendingInvoicesCount || 0} invoices pending`}
                 changeType="neutral"
                 icon={FileText}
@@ -107,7 +107,7 @@ const Dashboard = () => {
             <div className="animate-slide-up opacity-0 stagger-4">
               <StatCard
                 title="Monthly Profit"
-                value={formatCurrency(stats?.monthlyProfit || 0, currency, { compact: true })}
+                value={formatCurrency(stats?.monthlyProfit || 0, currency)}
                 change={formatChange(stats?.profitChange || 0)}
                 changeType={(stats?.monthlyProfit || 0) >= 0 ? "positive" : "negative"}
                 icon={TrendingUp}

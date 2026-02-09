@@ -59,7 +59,7 @@ const navItems: NavItem[] = [
   { label: "Expenses", href: "/expenses", icon: CreditCard },
   { label: "Payroll", href: "/payroll", icon: Wallet, requiredRoles: ["super_admin", "admin", "finance_manager", "hr"] },
   { label: "Statement", href: "/statement", icon: FileSpreadsheet, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
-  { label: "Transactions", href: "/transactions", icon: ListChecks, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
+  { label: "Transactions", href: "/transactions", icon: ListChecks, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant", "auditor"] },
   { label: "Employees", href: "/employees", icon: Users, requiredRoles: ["super_admin", "admin", "hr"] },
   { label: "Reports", href: "/reports", icon: FileBarChart, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant", "auditor"] },
   { label: "Notifications", href: "/notifications", icon: Bell, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
