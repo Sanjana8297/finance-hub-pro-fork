@@ -16,8 +16,8 @@ import Payroll from "./pages/Payroll";
 import Statement from "./pages/Statement";
 import StatementTransactions from "./pages/StatementTransactions";
 import Transactions from "./pages/Transactions";
-import Reports from "./pages/Reports";
-import AuditLogs from "./pages/AuditLogs";
+// import Reports from "./pages/Reports";
+// import AuditLogs from "./pages/AuditLogs";
 import Users from "./pages/Users";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
@@ -125,22 +125,22 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-            <Route
+            {/* <Route
               path="/reports"
               element={
                 <ProtectedRoute requiredRoles={["super_admin", "admin", "finance_manager", "accountant", "auditor"]}>
                   <Reports />
                 </ProtectedRoute>
               }
-            />
-            <Route
+            /> */}
+            {/* <Route
               path="/audit-logs"
               element={
                 <ProtectedRoute requiredRoles={["super_admin", "admin", "auditor"]}>
                   <AuditLogs />
                 </ProtectedRoute>
               }
-            />
+            /> */}
             <Route
               path="/users"
               element={

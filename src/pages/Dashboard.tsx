@@ -9,8 +9,8 @@ import {
   FileText, 
   CreditCard, 
   TrendingUp,
+  DollarSign,
   AlertCircle,
-  Clock,
   Plus,
   Tag
 } from "lucide-react";
@@ -19,6 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useCategoryStats } from "@/hooks/useCategoryStats";
+import { useInvoiceStats } from "@/hooks/useInvoices";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/useCompany";
 import { formatCurrency } from "@/lib/utils";
@@ -28,6 +29,7 @@ const Dashboard = () => {
   const { profile } = useAuth();
   const { data: stats, isLoading } = useDashboardStats();
   const { data: categoryStats, isLoading: categoryStatsLoading } = useCategoryStats();
+  const { data: invoiceStats, isLoading: invoiceStatsLoading } = useInvoiceStats();
   const { data: company } = useCompany();
 
   const currency = company?.currency || "INR";
@@ -37,6 +39,12 @@ const Dashboard = () => {
     const label = isExpense ? "from last month" : "from last month";
     return `${sign}${value.toFixed(1)}% ${label}`;
   };
+
+  // Compute total income = 'Income' transaction category netAmount + paid invoices amount
+  const incomeCategory = categoryStats?.find((c) => c.categoryName === "Income");
+  const incomeFromCategory = incomeCategory ? incomeCategory.netAmount : 0;
+  const paidInvoicesAmount = invoiceStats?.paidAmount || 0;
+  const totalIncomeAmount = incomeFromCategory + paidInvoicesAmount;
 
   return (
     <DashboardLayout>
@@ -50,10 +58,6 @@ const Dashboard = () => {
             </p>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline">
-              <Clock className="mr-2 h-4 w-4" />
-              This Month
-            </Button>
             <Button asChild>
               <Link to="/receipts">
                 <Plus className="mr-2 h-4 w-4" />
@@ -95,6 +99,20 @@ const Dashboard = () => {
               />
             </div>
             <div className="animate-slide-up opacity-0 stagger-3">
+              { (categoryStatsLoading || invoiceStatsLoading || isLoading) ? (
+                <Skeleton className="h-32 w-full" />
+              ) : (
+                <StatCard
+                  title="Total Income"
+                  value={formatCurrency(totalIncomeAmount || 0, currency)}
+                  changeType={(totalIncomeAmount || 0) >= 0 ? "positive" : "negative"}
+                  change={`${incomeFromCategory ? formatCurrency(incomeFromCategory, currency) : ""}${incomeFromCategory && paidInvoicesAmount ? " + " : ""}${paidInvoicesAmount ? formatCurrency(paidInvoicesAmount, currency) : ""}`}
+                  icon={DollarSign}
+                  iconColor={(totalIncomeAmount || 0) >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}
+                />
+              )}
+            </div>
+            <div className="animate-slide-up opacity-0 stagger-3">
               <StatCard
                 title="Pending Invoices"
                 value={formatCurrency(stats?.pendingInvoices || 0, currency)}
@@ -105,14 +123,24 @@ const Dashboard = () => {
               />
             </div>
             <div className="animate-slide-up opacity-0 stagger-4">
-              <StatCard
-                title="Monthly Profit"
-                value={formatCurrency(stats?.monthlyProfit || 0, currency)}
-                change={formatChange(stats?.profitChange || 0)}
-                changeType={(stats?.monthlyProfit || 0) >= 0 ? "positive" : "negative"}
-                icon={TrendingUp}
-                iconColor={(stats?.monthlyProfit || 0) >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}
-              />
+              {
+                (() => {
+                  // Ensure expenses are treated as a positive magnitude when
+                  // calculating profit: Total Income - Total Expenses
+                  const expensesMagnitude = Math.abs(stats?.expensesNetAmount || 0);
+                  const profitValue = (totalIncomeAmount || 0) - expensesMagnitude;
+                  return (
+                    <StatCard
+                      title="Total Profit"
+                      value={formatCurrency(profitValue, currency)}
+                      change={formatChange(stats?.profitChange || 0)}
+                      changeType={profitValue >= 0 ? "positive" : "negative"}
+                      icon={TrendingUp}
+                      iconColor={profitValue >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}
+                    />
+                  );
+                })()
+              }
             </div>
           </>
         )}

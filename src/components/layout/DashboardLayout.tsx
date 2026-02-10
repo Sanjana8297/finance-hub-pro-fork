@@ -61,9 +61,7 @@ const navItems: NavItem[] = [
   { label: "Statement", href: "/statement", icon: FileSpreadsheet, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
   { label: "Transactions", href: "/transactions", icon: ListChecks, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant", "auditor"] },
   { label: "Employees", href: "/employees", icon: Users, requiredRoles: ["super_admin", "admin", "hr"] },
-  { label: "Reports", href: "/reports", icon: FileBarChart, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant", "auditor"] },
   { label: "Notifications", href: "/notifications", icon: Bell, requiredRoles: ["super_admin", "admin", "finance_manager", "accountant"] },
-  { label: "Audit Logs", href: "/audit-logs", icon: ScrollText, requiredRoles: ["super_admin", "admin", "auditor"] },
   { label: "Users", href: "/users", icon: UserCog, requiredRoles: ["super_admin", "admin"] },
   { label: "Settings", href: "/settings", icon: Settings, requiredRoles: ["super_admin", "admin"] },
 ];
@@ -220,15 +218,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <Menu className="h-5 w-5" />
               )}
             </Button>
-
-            {/* Search */}
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search..."
-                className="pl-10 bg-secondary/50 border-0 focus-visible:ring-1 w-full"
-              />
-            </div>
 
             {/* Actions */}
             <div className="flex items-center gap-1 sm:gap-3">
