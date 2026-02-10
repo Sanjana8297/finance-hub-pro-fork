@@ -133,7 +133,7 @@ const Dashboard = () => {
                     <StatCard
                       title="Total Profit"
                       value={formatCurrency(profitValue, currency)}
-                      change={formatChange(stats?.profitChange || 0)}
+                      change="Income - Expenses"
                       changeType={profitValue >= 0 ? "positive" : "negative"}
                       icon={TrendingUp}
                       iconColor={profitValue >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}
