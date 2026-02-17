@@ -253,15 +253,11 @@ export function ExpenseDialog({
   }, [formData.category_id, categories]);
 
   const handleSubmit = async () => {
-    // Validate mandatory fields
-    if (!formData.description || !formData.amount) {
-      const missingFields: string[] = [];
-      if (!formData.description) missingFields.push("Description");
-      if (!formData.amount) missingFields.push("Amount");
-      
+    // Validate mandatory fields (description is now optional)
+    if (!formData.amount) {
       toast({
-        title: "Missing required fields",
-        description: `Please fill in the following mandatory fields: ${missingFields.join(", ")}`,
+        title: "Missing required field",
+        description: "Please fill in the Amount field",
         variant: "destructive",
       });
       return;
@@ -526,7 +522,7 @@ export function ExpenseDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="description">Description *</Label>
+            <Label htmlFor="description">Description (optional)</Label>
             <Input
               id="description"
               value={formData.description}

@@ -1457,6 +1457,10 @@ const Statement = () => {
               "d/M/yyyy",
               "d-M-yyyy",
               "d.M.yyyy",
+              "dd-MMM-yyyy",
+              "d-MMM-yyyy",
+              "dd-MMMM-yyyy",
+              "d-MMMM-yyyy",
             ];
 
             // Try parsing date string
@@ -1489,16 +1493,29 @@ const Statement = () => {
               }
             }
 
-            // If still no date but we have amounts/description, use a default date
-            if (!transactionDate && (hasAmounts || hasDescription)) {
-              // Use current date as fallback, or try to infer from context
-              transactionDate = new Date();
-              console.warn("No valid date found for row", i, "using current date");
+            // Try value date as fallback when transaction date is not parseable
+            if (!transactionDate && valueDateStr) {
+              for (const format of dateFormats) {
+                try {
+                  const parsed = parse(valueDateStr, format, new Date());
+                  if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900 && parsed.getFullYear() < 2100) {
+                    transactionDate = parsed;
+                    break;
+                  }
+                } catch {}
+              }
             }
 
-            // If absolutely no date and no data, skip
+            // If no valid date could be parsed, skip row
             if (!transactionDate) {
               skippedCount++;
+              console.warn(`Row ${i + 1}: skipped due to invalid transaction date`, {
+                dateStr,
+                valueDateStr,
+                description,
+                debit,
+                credit,
+              });
               continue;
             }
 

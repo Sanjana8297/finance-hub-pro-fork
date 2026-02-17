@@ -445,3 +445,35 @@ export function useDeleteExpense() {
     },
   });
 }
+
+// Fetch transactions directly from bank statements for given categories
+export function useDirectStatementExpenses(categories: string[]) {
+  const { data: company } = useCompany();
+  return useQuery({
+    queryKey: ["direct-statement-expenses", company?.id, categories],
+    queryFn: async () => {
+      if (!company?.id) return [];
+      // Get all bank statements for the company
+      const { data: statements, error: statementsError } = await supabase
+        .from("bank_statements")
+        .select("id")
+        .eq("company_id", company.id);
+      if (statementsError) throw statementsError;
+      if (!statements || statements.length === 0) return [];
+      const statementIds = statements.map((s: any) => s.id);
+      // Get all transactions from the statements
+      const { data: allTransactions, error: transactionsError } = await supabase
+        .from("bank_statement_transactions")
+        .select("*")
+        .in("statement_id", statementIds)
+        .order("transaction_date", { ascending: false });
+      if (transactionsError) throw transactionsError;
+      // Filter transactions client-side for category matching
+      const filteredTransactions = allTransactions.filter((t: any) =>
+        categories.includes(t.category)
+      );
+      return filteredTransactions;
+    },
+    enabled: !!company?.id,
+  });
+}

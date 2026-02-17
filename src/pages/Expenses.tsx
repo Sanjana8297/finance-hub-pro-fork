@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,8 @@ import {
   useDeleteExpense,
   Expense,
 } from "@/hooks/useExpenses";
+import { useQuery } from "@tanstack/react-query";
+import { useAutoSyncOnLoad } from "@/hooks/useStatementExpenses";
 import { useHasDelegatedAuthority } from "@/hooks/useExpenseDelegations";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/useCompany";
@@ -107,13 +109,51 @@ const Expenses = () => {
   const { data: company } = useCompany();
   const currency = company?.currency || "INR";
   const { data: hasDelegatedAuthority } = useHasDelegatedAuthority();
+  
+  // Auto-sync bank statement transactions to expenses on component load
+  useAutoSyncOnLoad();
+
   const rejectExpense = useRejectExpense();
   const deleteExpense = useDeleteExpense();
 
   // User can approve if they have finance access, are admin, or have been delegated authority
   const canApprove = hasFinanceAccess() || isAdmin() || hasDelegatedAuthority;
 
-  const filteredExpenses = expenses?.filter((expense) => {
+  // Strict deduplication at page level to prevent any duplicate expenses from being displayed
+  const dedupedExpenses = useMemo(() => {
+    if (!expenses || expenses.length === 0) return [];
+    
+    // Deduplicate by statement transaction ID (for statement-imported expenses)
+    // and by expense ID (for manually created expenses)
+    const seenStatementTxIds = new Set<string>();
+    const seenExpenseIds = new Set<string>();
+    const deduped: typeof expenses = [];
+    
+    for (const exp of expenses) {
+      // Check if it's a statement-imported expense
+      const notes = typeof exp.notes === 'string' ? exp.notes : '';
+      const match = notes.match(/\[STMT_TX_([^\]]+)\]/);
+      
+      if (match && match[1]) {
+        // It's a statement-imported expense - dedupe by transaction ID
+        const txId = match[1];
+        if (!seenStatementTxIds.has(txId)) {
+          seenStatementTxIds.add(txId);
+          deduped.push(exp);
+        }
+      } else {
+        // It's a manually created expense - dedupe by expense ID
+        if (!seenExpenseIds.has(exp.id)) {
+          seenExpenseIds.add(exp.id);
+          deduped.push(exp);
+        }
+      }
+    }
+    
+    return deduped;
+  }, [expenses]);
+
+  const filteredExpenses = dedupedExpenses?.filter((expense) => {
     const matchesSearch =
       !searchQuery ||
       expense.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -123,6 +163,118 @@ const Expenses = () => {
 
     return matchesSearch && matchesStatus;
   });
+
+  const statementTransactionIds = useMemo(() => {
+    if (!dedupedExpenses || dedupedExpenses.length === 0) return [] as string[];
+
+    const ids = new Set<string>();
+    for (const exp of dedupedExpenses) {
+      const notes = typeof exp.notes === "string" ? exp.notes : "";
+      const match = notes.match(/\[STMT_TX_([^\]]+)\]/);
+      if (match && match[1]) {
+        ids.add(match[1]);
+      }
+    }
+
+    return Array.from(ids);
+  }, [dedupedExpenses]);
+
+  const getDateFromStatementMetadata = (metadata: any): string | null => {
+    if (!metadata) return null;
+
+    const fromOriginal = metadata?.original_data?.["Transaction Date"];
+    const fromColumns = Array.isArray(metadata?.all_columns)
+      ? metadata.all_columns.find((col: any) => col?.header && String(col.header).toLowerCase().includes("transaction date"))?.value
+      : null;
+    const rawDate = fromOriginal || fromColumns;
+    if (!rawDate) return null;
+
+    const value = String(rawDate).trim();
+
+    const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) return value;
+
+    const monthNames: Record<string, string> = {
+      jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+      jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+    };
+
+    const dmyNamed = value.match(/^(\d{1,2})[-\/.]([A-Za-z]{3,})[-\/.](\d{4})$/);
+    if (dmyNamed) {
+      const day = dmyNamed[1].padStart(2, "0");
+      const month = monthNames[dmyNamed[2].slice(0, 3).toLowerCase()];
+      const year = dmyNamed[3];
+      if (month) return `${year}-${month}-${day}`;
+    }
+
+    const dmyNumeric = value.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+    if (dmyNumeric) {
+      const day = dmyNumeric[1].padStart(2, "0");
+      const month = dmyNumeric[2].padStart(2, "0");
+      const year = dmyNumeric[3];
+      return `${year}-${month}-${day}`;
+    }
+
+    return null;
+  };
+
+  const { data: statementTransactionMap } = useQuery({
+    queryKey: ["statement-transaction-map", company?.id, statementTransactionIds.join(",")],
+    queryFn: async () => {
+      if (!statementTransactionIds.length) return {} as Record<string, { transaction_date: string | null; description: string | null; category: string | null }>;
+
+      const { data, error } = await (supabase as any)
+        .from("bank_statement_transactions")
+        .select("id, transaction_date, description, category, metadata")
+        .in("id", statementTransactionIds);
+
+      if (error) throw error;
+
+      const map: Record<string, { transaction_date: string | null; description: string | null; category: string | null }> = {};
+      for (const row of data || []) {
+        const metadataDate = getDateFromStatementMetadata(row.metadata);
+        map[row.id] = {
+          transaction_date: metadataDate ?? row.transaction_date ?? null,
+          description: row.description ?? null,
+          category: row.category ?? null,
+        };
+      }
+      return map;
+    },
+    enabled: !!company?.id && statementTransactionIds.length > 0,
+    staleTime: 30000,
+  });
+
+  const getDisplayDateValue = (expense: Expense) => {
+    const isStatementExpenseRow = typeof expense.notes === "string" && /\[STMT_TX_[^\]]+\]/.test(expense.notes);
+    const statementTxId = isStatementExpenseRow
+      ? (typeof expense.notes === "string" ? expense.notes.match(/\[STMT_TX_([^\]]+)\]/)?.[1] : undefined)
+      : undefined;
+    const statementTx = statementTxId ? statementTransactionMap?.[statementTxId] : undefined;
+    return isStatementExpenseRow
+      ? (statementTx?.transaction_date || expense.expense_date)
+      : expense.expense_date;
+  };
+
+  const sortedFilteredExpenses = useMemo(() => {
+    if (!filteredExpenses || filteredExpenses.length === 0) return [];
+
+    return [...filteredExpenses].sort((a, b) => {
+      const dateA = new Date(getDisplayDateValue(a)).getTime();
+      const dateB = new Date(getDisplayDateValue(b)).getTime();
+
+      const safeDateA = Number.isNaN(dateA) ? 0 : dateA;
+      const safeDateB = Number.isNaN(dateB) ? 0 : dateB;
+
+      if (safeDateA !== safeDateB) {
+        return safeDateB - safeDateA;
+      }
+
+      const createdA = new Date(a.created_at).getTime();
+      const createdB = new Date(b.created_at).getTime();
+      return (Number.isNaN(createdB) ? 0 : createdB) - (Number.isNaN(createdA) ? 0 : createdA);
+    });
+  }, [filteredExpenses, statementTransactionMap]);
 
   const handleEdit = (expense: Expense) => {
     setSelectedExpense(expense);
@@ -436,7 +588,7 @@ const Expenses = () => {
                     ))}
                   </TableRow>
                 ))
-              ) : filteredExpenses?.length === 0 ? (
+              ) : sortedFilteredExpenses?.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="py-12 text-center">
                     <DollarSign className="mx-auto h-12 w-12 text-muted-foreground/50" />
@@ -451,49 +603,63 @@ const Expenses = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredExpenses?.map((expense) => {
-                  const status = statusConfig[expense.status as keyof typeof statusConfig] || statusConfig.pending;
-                  const StatusIcon = status.icon;
-                  const submitterName = expense.profiles?.full_name || "Unknown";
-                  const submitterInitial = submitterName.charAt(0);
-
+                sortedFilteredExpenses?.map((expense) => {
+                  // Detect statement-imported expense by notes containing [STMT_TX_xxx] pattern
+                  const isStatementExpenseRow = typeof expense.notes === 'string' && /\[STMT_TX_[^\]]+\]/.test(expense.notes);
+                  const statementTxId = isStatementExpenseRow
+                    ? (typeof expense.notes === 'string' ? expense.notes.match(/\[STMT_TX_([^\]]+)\]/)?.[1] : undefined)
+                    : undefined;
+                  const statementTx = statementTxId ? statementTransactionMap?.[statementTxId] : undefined;
+                  let status, StatusIcon;
+                  if (!isStatementExpenseRow) {
+                    status = statusConfig[expense.status as keyof typeof statusConfig] || statusConfig.pending;
+                    StatusIcon = status.icon;
+                  }
                   return (
                     <TableRow key={expense.id}>
                       <TableCell className="font-medium max-w-[200px] truncate">
-                        {expense.description}
+                        {isStatementExpenseRow
+                          ? (statementTx?.description || expense.description)
+                          : expense.description}
                       </TableCell>
                       <TableCell>
-                        {expense.expense_categories?.name ? (
-                          <Badge variant="muted">{expense.expense_categories.name}</Badge>
+                        {(isStatementExpenseRow ? statementTx?.category : expense.expense_categories?.name) ? (
+                          <Badge variant="muted">{isStatementExpenseRow ? statementTx?.category : expense.expense_categories?.name}</Badge>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell>{expense.department || "—"}</TableCell>
-                      <TableCell>
+                      <TableCell>{isStatementExpenseRow ? '' : (expense.department || '—')}</TableCell>
+                      <TableCell>{isStatementExpenseRow ? '' : (
                         <div className="flex items-center gap-2">
                           <Avatar className="h-7 w-7">
                             <AvatarImage
-                              src={expense.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${submitterName}`}
+                              src={expense.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${expense.profiles?.full_name || 'Unknown'}`}
                             />
-                            <AvatarFallback>{submitterInitial}</AvatarFallback>
+                            <AvatarFallback>{(expense.profiles?.full_name || 'U').charAt(0)}</AvatarFallback>
                           </Avatar>
-                          <span className="text-sm">{submitterName}</span>
+                          <span className="text-sm">{expense.profiles?.full_name || 'Unknown'}</span>
                         </div>
-                      </TableCell>
+                      )}</TableCell>
                       <TableCell className="font-semibold">
-                        {formatCurrency(Number(expense.amount), currency)}
+                        {isStatementExpenseRow ? expense.amount : formatCurrency(Number(expense.amount), currency)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {format(new Date(expense.expense_date), "MMM d, yyyy")}
+                        {(() => {
+                          const dateValue = isStatementExpenseRow
+                            ? (statementTx?.transaction_date || expense.expense_date)
+                            : expense.expense_date;
+                          const parsedDate = new Date(dateValue);
+                          return isNaN(parsedDate.getTime()) ? '—' : format(parsedDate, 'MMM d, yyyy');
+                        })()}
                       </TableCell>
-                      <TableCell>
-                        {expense.receipt_id ? (
+                      <TableCell>{isStatementExpenseRow ? '' : (
+                        expense.receipt_id ? (
                           <div className="flex items-center gap-2">
-                          <Badge variant="success" className="gap-1">
-                            <Receipt className="h-3 w-3" />
-                            Attached
-                          </Badge>
+                            <Badge variant="success" className="gap-1">
+                              <Receipt className="h-3 w-3" />
+                              Attached
+                            </Badge>
                             {(() => {
                               const receipt = receipts?.find((r) => r.id === expense.receipt_id);
                               if (receipt?.file_url) {
@@ -504,7 +670,7 @@ const Expenses = () => {
                                       size="icon-sm"
                                       className="h-7 w-7"
                                       onClick={() => {
-                                        openReceiptInNewTab(receipt.file_url, receipt.receipt_number || "Receipt");
+                                        openReceiptInNewTab(receipt.file_url, receipt.receipt_number || 'Receipt');
                                       }}
                                       title="View receipt"
                                     >
@@ -515,7 +681,7 @@ const Expenses = () => {
                                       size="icon-sm"
                                       className="h-7 w-7"
                                       onClick={() => {
-                                        downloadReceipt(receipt.file_url, receipt.receipt_number || "Receipt");
+                                        downloadReceipt(receipt.file_url, receipt.receipt_number || 'Receipt');
                                       }}
                                       title="Download receipt"
                                     >
@@ -529,18 +695,18 @@ const Expenses = () => {
                           </div>
                         ) : (
                           <Badge variant="muted">Missing</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
+                        )
+                      )}</TableCell>
+                      <TableCell>{isStatementExpenseRow ? '' : (
                         <div className="flex items-center gap-2">
-                          <Badge variant={status.variant} className="gap-1">
-                            <StatusIcon className="h-3 w-3" />
-                            {status.label}
+                          <Badge variant={status?.variant} className="gap-1">
+                            {StatusIcon && <StatusIcon className="h-3 w-3" />}
+                            {status?.label}
                           </Badge>
                           <PolicyViolationBadge expenseId={expense.id} />
                         </div>
-                      </TableCell>
-                      <TableCell>
+                      )}</TableCell>
+                      <TableCell>{isStatementExpenseRow ? '' : (
                         <ExpenseActions
                           expense={expense}
                           canApprove={canApprove}
@@ -548,7 +714,7 @@ const Expenses = () => {
                           onReject={handleRejectClick}
                           onDelete={handleDeleteClick}
                         />
-                      </TableCell>
+                      )}</TableCell>
                     </TableRow>
                   );
                 })
@@ -559,7 +725,7 @@ const Expenses = () => {
         </Card>
         </TabsContent>
 
-        <TabsContent value="recurring">
+        <TabsContent value="recurring" className="space-y-6">
           <RecurringExpenseManager />
         </TabsContent>
 
