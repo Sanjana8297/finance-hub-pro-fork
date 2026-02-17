@@ -59,31 +59,59 @@ export function useExpenses() {
 }
 
 export function useExpenseStats() {
+  const { data: company } = useCompany();
+
   return useQuery({
-    queryKey: ["expense-stats"],
+    queryKey: ["expense-stats", company?.id],
     queryFn: async () => {
+      if (!company?.id) {
+        return { totalAmount: 0, approvedAmount: 0, pendingAmount: 0, totalTransactions: 0 };
+      }
+
       const { data: expenses, error } = await supabase
         .from("expenses")
-        .select("id, amount, status, created_at");
+        .select("id, amount, status, created_at, expense_date, notes")
+        .eq("company_id", company.id);
 
       if (error) throw error;
 
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const dedupedExpenses = (() => {
+        const rows = expenses || [];
+        const seenStatementTxIds = new Set<string>();
+        const seenExpenseIds = new Set<string>();
+        const deduped: typeof rows = [];
 
-      const totalAmount = expenses?.reduce((sum, exp) => sum + Number(exp.amount), 0) || 0;
-      const approvedAmount = expenses
+        for (const exp of rows) {
+          const notes = typeof exp.notes === "string" ? exp.notes : "";
+          const match = notes.match(/\[STMT_TX_([^\]]+)\]/);
+
+          if (match && match[1]) {
+            const txId = match[1];
+            if (!seenStatementTxIds.has(txId)) {
+              seenStatementTxIds.add(txId);
+              deduped.push(exp);
+            }
+          } else if (!seenExpenseIds.has(exp.id)) {
+            seenExpenseIds.add(exp.id);
+            deduped.push(exp);
+          }
+        }
+
+        return deduped;
+      })();
+
+      const totalAmount = dedupedExpenses.reduce((sum, exp) => sum + Number(exp.amount), 0) || 0;
+      const approvedAmount = dedupedExpenses
         ?.filter((exp) => exp.status === "approved")
         .reduce((sum, exp) => sum + Number(exp.amount), 0) || 0;
-      const pendingAmount = expenses
+      const pendingAmount = dedupedExpenses
         ?.filter((exp) => exp.status === "pending")
         .reduce((sum, exp) => sum + Number(exp.amount), 0) || 0;
-      const thisMonthCount = expenses?.filter(
-        (exp) => new Date(exp.created_at) >= startOfMonth
-      ).length || 0;
+      const totalTransactions = dedupedExpenses.length;
 
-      return { totalAmount, approvedAmount, pendingAmount, thisMonthCount };
+      return { totalAmount, approvedAmount, pendingAmount, totalTransactions };
     },
+    enabled: !!company?.id,
   });
 }
 
@@ -443,37 +471,5 @@ export function useDeleteExpense() {
         variant: "destructive",
       });
     },
-  });
-}
-
-// Fetch transactions directly from bank statements for given categories
-export function useDirectStatementExpenses(categories: string[]) {
-  const { data: company } = useCompany();
-  return useQuery({
-    queryKey: ["direct-statement-expenses", company?.id, categories],
-    queryFn: async () => {
-      if (!company?.id) return [];
-      // Get all bank statements for the company
-      const { data: statements, error: statementsError } = await supabase
-        .from("bank_statements")
-        .select("id")
-        .eq("company_id", company.id);
-      if (statementsError) throw statementsError;
-      if (!statements || statements.length === 0) return [];
-      const statementIds = statements.map((s: any) => s.id);
-      // Get all transactions from the statements
-      const { data: allTransactions, error: transactionsError } = await supabase
-        .from("bank_statement_transactions")
-        .select("*")
-        .in("statement_id", statementIds)
-        .order("transaction_date", { ascending: false });
-      if (transactionsError) throw transactionsError;
-      // Filter transactions client-side for category matching
-      const filteredTransactions = allTransactions.filter((t: any) =>
-        categories.includes(t.category)
-      );
-      return filteredTransactions;
-    },
-    enabled: !!company?.id,
   });
 }

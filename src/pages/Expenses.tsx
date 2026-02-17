@@ -481,7 +481,7 @@ const Expenses = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold">
-              {formatCurrency(stats?.totalAmount || 0, currency, { compact: true })}
+              {formatCurrency(stats?.totalAmount || 0, currency)}
             </p>
           )}
         </Card>
@@ -501,16 +501,16 @@ const Expenses = () => {
             <Skeleton className="h-8 w-24" />
           ) : (
             <p className="text-2xl font-bold text-warning">
-              {formatCurrency(stats?.pendingAmount || 0, currency, { compact: true })}
+              {formatCurrency(stats?.pendingAmount || 0, currency)}
             </p>
           )}
         </Card>
         <Card variant="stat" className="p-4">
-          <p className="text-sm text-muted-foreground">This Month</p>
+          <p className="text-sm text-muted-foreground">Total Transactions</p>
           {statsLoading ? (
             <Skeleton className="h-8 w-24" />
           ) : (
-            <p className="text-2xl font-bold">{stats?.thisMonthCount || 0} expenses</p>
+            <p className="text-2xl font-bold">{stats?.totalTransactions || 0} transactions</p>
           )}
         </Card>
       </div>
