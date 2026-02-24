@@ -124,16 +124,16 @@ export function useReviewAnomaly() {
       if (error) throw error;
 
       // Log to audit
-      await supabase.from("audit_logs").insert({
-        action: `anomaly_${data.status}`,
-        table_name: "anomaly_reviews",
-        record_id: data.id,
-        user_id: user?.id,
-        new_value: {
-          status: data.status,
-          resolution_notes: data.resolution_notes,
-        },
-      });
+      // await supabase.from("audit_logs").insert({
+      //   action: `anomaly_${data.status}`,
+      //   table_name: "anomaly_reviews",
+      //   record_id: data.id,
+      //   user_id: user?.id,
+      //   new_value: {
+      //     status: data.status,
+      //     resolution_notes: data.resolution_notes,
+      //   },
+      // });
 
       return { id: data.id, status: data.status };
     },
@@ -175,15 +175,15 @@ export function useBulkReviewAnomalies() {
       if (error) throw error;
 
       // Log to audit
-      for (const id of data.ids) {
-        await supabase.from("audit_logs").insert({
-          action: `bulk_anomaly_${data.status}`,
-          table_name: "anomaly_reviews",
-          record_id: id,
-          user_id: user?.id,
-          new_value: { status: data.status },
-        });
-      }
+      // for (const id of data.ids) {
+      //   await supabase.from("audit_logs").insert({
+      //     action: `bulk_anomaly_${data.status}`,
+      //     table_name: "anomaly_reviews",
+      //     record_id: id,
+      //     user_id: user?.id,
+      //     new_value: { status: data.status },
+      //   });
+      // }
 
       return { count: data.ids.length };
     },

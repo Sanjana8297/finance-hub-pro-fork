@@ -23,3 +23,6 @@ verify_jwt = true
 
 [functions.scheduled-anomaly-scan]
 verify_jwt = false
+
+[functions.reset-user-password]
+verify_jwt = true

@@ -37,13 +37,57 @@ import {
   Shield,
   UserCheck,
   UserX,
+  Key,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import { UserDialog } from "@/components/users/UserDialog";
 import { ViewProfileDialog } from "@/components/users/ViewProfileDialog";
 import { EditUserDialog } from "@/components/users/EditUserDialog";
 import { ManageRolesDialog } from "@/components/users/ManageRolesDialog";
 import { useUsers, UserWithRoles } from "@/hooks/useUsers";
 import { format } from "date-fns";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { useQueryClient } from "@tanstack/react-query";
+
+// Hash password using Web Crypto PBKDF2 (returns iterations:salt:hash in hex)
+async function hashPassword(password: string) {
+  const enc = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iterations = 100000;
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"]
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt,
+      iterations,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    256
+  );
+  const derived = new Uint8Array(derivedBits);
+  const toHex = (arr: Uint8Array) =>
+    Array.from(arr)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  return `${iterations}:${toHex(salt)}:${toHex(derived)}`;
+}
 
 interface User {
   id: string;
@@ -151,6 +195,90 @@ const Users = () => {
     if (originalUser) {
       setSelectedUser(originalUser as UserWithRoles);
       setRolesDialogOpen(true);
+    }
+  };
+
+  const { isAdmin, user: currentUser } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetTargetUser, setResetTargetUser] = useState<UserWithRoles | null>(null);
+  const [resetPasswordValues, setResetPasswordValues] = useState({
+    password: "",
+    confirmPassword: "",
+  });
+  const [isResetting, setIsResetting] = useState(false);
+  const passwordsMatch = resetPasswordValues.password === resetPasswordValues.confirmPassword;
+  const passwordValidLength = resetPasswordValues.password.length >= 6;
+
+  const openResetDialog = (displayUser: User) => {
+    // Permission check: only admins can reset other users
+    if (!isAdmin() && currentUser?.id !== displayUser.id) {
+      toast({
+        title: "Permission denied",
+        description: "Only Admins can reset other users' passwords.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const originalUser = usersData?.find((u) => u.id === displayUser.id);
+    setResetTargetUser(originalUser as UserWithRoles | null);
+    setResetPasswordValues({ password: "", confirmPassword: "" });
+    setResetDialogOpen(true);
+  };
+
+  const handleConfirmReset = async () => {
+    if (!resetTargetUser) return;
+    const newPassword = resetPasswordValues.password;
+    const confirm = resetPasswordValues.confirmPassword;
+
+    if (!newPassword || newPassword.length < 6) {
+      toast({
+        title: "Invalid password",
+        description: "Password must be at least 6 characters long.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (newPassword !== confirm) {
+      toast({
+        title: "Password mismatch",
+        description: "New password and confirm password do not match.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      // Hash the password before storing. Uses PBKDF2 with SHA-256.
+      const hashed = await hashPassword(newPassword);
+
+      const { error } = await supabase
+        .from("employees" as any)
+        .update({ password: hashed } as any)
+        .eq("user_id", resetTargetUser.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Password updated",
+        description: `Password updated for ${resetTargetUser.email}`,
+      });
+
+      // Invalidate employees cache
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
+      setResetDialogOpen(false);
+    } catch (err: any) {
+      toast({
+        title: "Update failed",
+        description: err?.message || "Failed to update password.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -326,6 +454,12 @@ const Users = () => {
                           <Shield className="mr-2 h-4 w-4" />
                           Manage Roles
                         </DropdownMenuItem>
+                        {(isAdmin() || currentUser?.id === user.id) && (
+                          <DropdownMenuItem onClick={() => openResetDialog(user)}>
+                            <Key className="mr-2 h-4 w-4" />
+                            Reset Password
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem className="text-destructive">
                           <Trash2 className="mr-2 h-4 w-4" />
                           Deactivate
@@ -358,6 +492,61 @@ const Users = () => {
         open={rolesDialogOpen}
         onOpenChange={setRolesDialogOpen}
       />
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Set New Password</DialogTitle>
+            <DialogDescription>
+              Enter a new password for {resetTargetUser?.full_name || resetTargetUser?.email}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New Password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={resetPasswordValues.password}
+                onChange={(e) =>
+                  setResetPasswordValues((prev) => ({ ...prev, password: e.target.value }))
+                }
+                placeholder="Minimum 6 characters"
+              />
+              {resetPasswordValues.password && !passwordValidLength && (
+                <p className="text-xs text-destructive">Password must be at least 6 characters</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm Password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={resetPasswordValues.confirmPassword}
+                onChange={(e) =>
+                  setResetPasswordValues((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                }
+                placeholder="Confirm password"
+              />
+              {resetPasswordValues.confirmPassword && !passwordsMatch && (
+                <p className="text-xs text-destructive">Passwords do not match</p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmReset}
+              disabled={isResetting || !passwordValidLength || !passwordsMatch}
+            >
+              {isResetting ? "Saving..." : "Save Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 };

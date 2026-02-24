@@ -1042,70 +1042,70 @@ const Transactions = () => {
                   </div>
                   {!isAuditor && (
                     <>
-                      {selectedCategoryForDelete ? (
+                  {selectedCategoryForDelete ? (
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        // Second click: open delete dialog
+                        const selectedCategory = categories?.find(cat => cat.category_name === selectedCategoryForDelete);
+                        if (selectedCategory) {
+                          setCategoryToDelete({ id: selectedCategory.category_id, name: selectedCategory.category_name });
+                          setCategoryDeleteDialogOpen(true);
+                        }
+                      }}
+                      title={`Delete category: ${selectedCategoryForDelete}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  ) : (
+                    <DropdownMenu open={categoryDeleteDropdownOpen} onOpenChange={setCategoryDeleteDropdownOpen}>
+                      <DropdownMenuTrigger asChild>
                         <Button
                           variant="destructive"
                           size="icon"
                           onClick={(e) => {
                             e.preventDefault();
-                            // Second click: open delete dialog
-                            const selectedCategory = categories?.find(cat => cat.category_name === selectedCategoryForDelete);
-                            if (selectedCategory) {
-                              setCategoryToDelete({ id: selectedCategory.category_id, name: selectedCategory.category_name });
-                              setCategoryDeleteDialogOpen(true);
-                            }
+                            // First click: open dropdown
+                            setCategoryDeleteDropdownOpen(true);
                           }}
-                          title={`Delete category: ${selectedCategoryForDelete}`}
+                          title="Delete category"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
-                      ) : (
-                        <DropdownMenu open={categoryDeleteDropdownOpen} onOpenChange={setCategoryDeleteDropdownOpen}>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="destructive"
-                              size="icon"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                // First click: open dropdown
-                                setCategoryDeleteDropdownOpen(true);
-                              }}
-                              title="Delete category"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-56">
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setCategoryDeleteDropdownOpen(false);
+                          }}
+                          className="text-muted-foreground"
+                          disabled
+                        >
+                          Select a category to delete
+                        </DropdownMenuItem>
+                        {categories && categories.length > 0 ? (
+                          categories.map((cat) => (
                             <DropdownMenuItem
+                              key={cat.category_id}
                               onClick={(e) => {
                                 e.preventDefault();
+                                setSelectedCategoryForDelete(cat.category_name);
                                 setCategoryDeleteDropdownOpen(false);
                               }}
-                              className="text-muted-foreground"
-                              disabled
                             >
-                              Select a category to delete
+                              {cat.category_name}
                             </DropdownMenuItem>
-                            {categories && categories.length > 0 ? (
-                              categories.map((cat) => (
-                                <DropdownMenuItem
-                                  key={cat.category_id}
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    setSelectedCategoryForDelete(cat.category_name);
-                                    setCategoryDeleteDropdownOpen(false);
-                                  }}
-                                >
-                                  {cat.category_name}
-                                </DropdownMenuItem>
-                              ))
-                            ) : (
-                              <DropdownMenuItem disabled className="text-muted-foreground">
-                                No categories available
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                          ))
+                        ) : (
+                          <DropdownMenuItem disabled className="text-muted-foreground">
+                            No categories available
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                       )}
                     </>
                   )}
@@ -1958,22 +1958,22 @@ const Transactions = () => {
                                             </a>
                                           )}
                                           {!isAuditor && (
-                                            <Button
-                                              variant="ghost"
-                                              size="icon"
-                                              className="h-5 w-5 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                console.log('Delete button clicked for transaction:', transactionId);
-                                                setProofToDelete({ transactionId, proofUrl: currentProof });
-                                                setDeleteConfirmOpen(true);
-                                                console.log('Delete confirm dialog should open');
-                                              }}
-                                              title="Delete proof"
-                                            >
-                                              <Trash2 className="h-3 w-3" />
-                                            </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-5 w-5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              console.log('Delete button clicked for transaction:', transactionId);
+                                              setProofToDelete({ transactionId, proofUrl: currentProof });
+                                              setDeleteConfirmOpen(true);
+                                              console.log('Delete confirm dialog should open');
+                                            }}
+                                            title="Delete proof"
+                                          >
+                                            <Trash2 className="h-3 w-3" />
+                                          </Button>
                                           )}
                                         </div>
                                       ) : null}
@@ -1994,81 +1994,81 @@ const Transactions = () => {
                                           )}
                                         </div>
                                       ) : (
-                                        <div className="flex gap-1">
-                                          <Input
-                                            value={currentProof}
-                                            onChange={(e) => {
-                                              const newValue = e.target.value;
-                                              setProofValues(prev => ({
-                                                ...prev,
-                                                [transactionId]: newValue
-                                              }));
-                                            }}
-                                            onBlur={(e) => {
-                                              if (transactionId) {
-                                                const proofValue = e.target.value.trim();
-                                                // Save even if empty to clear existing proof
-                                                updateTransaction.mutate({
-                                                  transactionId,
-                                                  proof: proofValue
-                                                });
-                                              }
-                                            }}
-                                            placeholder="Enter URL or upload file"
-                                            className="h-8 text-xs flex-1"
-                                          />
-                                          <input
-                                            type="file"
-                                            id={`proof-file-${transactionId}`}
-                                            className="hidden"
-                                            accept="image/*,application/pdf"
-                                            onChange={(e) => {
-                                              const file = e.target.files?.[0];
-                                              if (file && transactionId) {
-                                                handleProofFileUpload(transactionId, file);
-                                              }
-                                              // Reset input
-                                              e.target.value = '';
-                                            }}
-                                          />
-                                          <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                              <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-8 w-8"
-                                                disabled={uploadingProofs[transactionId]}
-                                                title="Add proof"
-                                              >
-                                                {uploadingProofs[transactionId] ? (
-                                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                                ) : (
-                                                  <Plus className="h-3 w-3" />
-                                                )}
-                                              </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                              <DropdownMenuItem
-                                                onClick={() => {
-                                                  document.getElementById(`proof-file-${transactionId}`)?.click();
-                                                }}
-                                              >
-                                                <Upload className="h-4 w-4 mr-2" />
-                                                Upload a file
-                                              </DropdownMenuItem>
-                                              <DropdownMenuItem
-                                                onClick={() => {
-                                                  setCurrentTransactionId(transactionId);
-                                                  setLinkDialogOpen(true);
-                                                }}
-                                              >
-                                                <LinkIcon className="h-4 w-4 mr-2" />
-                                                Link from invoice or expense
-                                              </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                          </DropdownMenu>
-                                        </div>
+                                      <div className="flex gap-1">
+                                        <Input
+                                          value={currentProof}
+                                          onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            setProofValues(prev => ({
+                                              ...prev,
+                                              [transactionId]: newValue
+                                            }));
+                                          }}
+                                          onBlur={(e) => {
+                                            if (transactionId) {
+                                              const proofValue = e.target.value.trim();
+                                              // Save even if empty to clear existing proof
+                                              updateTransaction.mutate({
+                                                transactionId,
+                                                proof: proofValue
+                                              });
+                                            }
+                                          }}
+                                          placeholder="Enter URL or upload file"
+                                          className="h-8 text-xs flex-1"
+                                        />
+                                        <input
+                                          type="file"
+                                          id={`proof-file-${transactionId}`}
+                                          className="hidden"
+                                          accept="image/*,application/pdf"
+                                          onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file && transactionId) {
+                                              handleProofFileUpload(transactionId, file);
+                                            }
+                                            // Reset input
+                                            e.target.value = '';
+                                          }}
+                                        />
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="icon"
+                                              className="h-8 w-8"
+                                              disabled={uploadingProofs[transactionId]}
+                                              title="Add proof"
+                                            >
+                                              {uploadingProofs[transactionId] ? (
+                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                              ) : (
+                                                <Plus className="h-3 w-3" />
+                                              )}
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end">
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                document.getElementById(`proof-file-${transactionId}`)?.click();
+                                              }}
+                                            >
+                                              <Upload className="h-4 w-4 mr-2" />
+                                              Upload a file
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                              onClick={() => {
+                                                setCurrentTransactionId(transactionId);
+                                                setLinkDialogOpen(true);
+                                              }}
+                                            >
+                                              <LinkIcon className="h-4 w-4 mr-2" />
+                                              Link from invoice or expense
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                      </div>
                                       )}
                                     </div>
                                   ) : transactions && transactions.length > 0 ? (
@@ -2241,28 +2241,28 @@ const Transactions = () => {
                                         {notesValues[transactionId] || "—"}
                                       </div>
                                     ) : (
-                                      <Textarea
-                                        value={notesValues[transactionId] || ""}
-                                        onChange={(e) => {
-                                          const newValue = e.target.value;
-                                          setNotesValues(prev => ({
-                                            ...prev,
-                                            [transactionId]: newValue
-                                          }));
-                                        }}
-                                        onBlur={(e) => {
-                                          if (transactionId) {
-                                            const notesValue = e.target.value.trim();
-                                            updateTransaction.mutate({
-                                              transactionId,
-                                              notes: notesValue || null
-                                            });
-                                          }
-                                        }}
-                                        placeholder="Enter note"
-                                        className="min-h-[60px] text-xs resize-y w-full whitespace-pre-wrap break-words"
-                                        rows={notesValues[transactionId] ? Math.max(2, Math.ceil((notesValues[transactionId] || "").split('\n').length)) : 2}
-                                      />
+                                    <Textarea
+                                      value={notesValues[transactionId] || ""}
+                                      onChange={(e) => {
+                                        const newValue = e.target.value;
+                                        setNotesValues(prev => ({
+                                          ...prev,
+                                          [transactionId]: newValue
+                                        }));
+                                      }}
+                                      onBlur={(e) => {
+                                        if (transactionId) {
+                                          const notesValue = e.target.value.trim();
+                                          updateTransaction.mutate({
+                                            transactionId,
+                                            notes: notesValue || null
+                                          });
+                                        }
+                                      }}
+                                      placeholder="Enter note"
+                                      className="min-h-[60px] text-xs resize-y w-full whitespace-pre-wrap break-words"
+                                      rows={notesValues[transactionId] ? Math.max(2, Math.ceil((notesValues[transactionId] || "").split('\n').length)) : 2}
+                                    />
                                     )
                                   ) : transactions && transactions.length > 0 ? (
                                     (() => {
