@@ -46,9 +46,11 @@ import { useCompany } from "@/hooks/useCompany";
 import { usePayslips, usePayslipStats } from "@/hooks/usePayslips";
 import { format } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 
 interface PayslipDisplay {
   id: string;
+  employeeId: string;
   employee: {
     name: string;
     position: string;
@@ -83,6 +85,7 @@ const statusConfig = {
 };
 
 const Payroll = () => {
+  const navigate = useNavigate();
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipDisplay | null>(null);
   const [isPayslipDialogOpen, setIsPayslipDialogOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -104,6 +107,7 @@ const Payroll = () => {
     
     return {
       id: payslip.id,
+      employeeId: payslip.employee_id,
       employee: {
         name: employee?.full_name || "Unknown Employee",
         position: employee?.position || "N/A",
@@ -146,6 +150,20 @@ const Payroll = () => {
   const handleViewPayslip = (payslip: PayslipDisplay) => {
     setSelectedPayslip(payslip);
     setIsPayslipDialogOpen(true);
+  };
+
+  const handleOpenEmployeePayroll = (employeeId: string) => {
+    if (!employeeId) {
+      toast({
+        title: "Employee details unavailable",
+        description: "Could not open payroll details for this employee.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const detailsUrl = `/payroll/employee/${encodeURIComponent(employeeId)}`;
+    navigate(detailsUrl);
   };
 
   const handleDownloadPDF = async (payslip: PayslipDisplay) => {
@@ -348,7 +366,11 @@ const Payroll = () => {
                 const status = statusConfig[payslip.status];
                 const StatusIcon = status.icon;
                 return (
-                  <TableRow key={payslip.id}>
+                  <TableRow
+                    key={payslip.id}
+                    className="cursor-pointer"
+                    onClick={() => handleOpenEmployeePayroll(payslip.employeeId)}
+                  >
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-8 w-8">
@@ -392,17 +414,27 @@ const Payroll = () => {
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={(event) => event.stopPropagation()}
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleViewPayslip(payslip)}>
+                          <DropdownMenuItem onClick={(event) => {
+                            event.stopPropagation();
+                            handleViewPayslip(payslip);
+                          }}>
                             <Eye className="mr-2 h-4 w-4" />
                             View Payslip
                           </DropdownMenuItem>
                           <DropdownMenuItem 
-                            onClick={() => handleDownloadPDF(payslip)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDownloadPDF(payslip);
+                            }}
                             disabled={downloadingId === payslip.id}
                           >
                             {downloadingId === payslip.id ? (
@@ -413,7 +445,10 @@ const Payroll = () => {
                             Download PDF
                           </DropdownMenuItem>
                           <DropdownMenuItem 
-                            onClick={() => handlePrint(payslip)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handlePrint(payslip);
+                            }}
                             disabled={printingId === payslip.id}
                           >
                             {printingId === payslip.id ? (

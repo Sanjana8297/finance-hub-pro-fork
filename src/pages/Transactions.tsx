@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { useBankStatements, useBankStatementTransactions, useUpdateBankStatementTransaction } from "@/hooks/useStatements";
+import type { BankStatement, BankStatementTransaction } from "@/hooks/useStatements";
 import { useCompany } from "@/hooks/useCompany";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -88,8 +89,10 @@ const Transactions = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [proofToDelete, setProofToDelete] = useState<{ transactionId: string; proofUrl: string } | null>(null);
   const [deletingProof, setDeletingProof] = useState(false);
-  const { data: statements, isLoading } = useBankStatements();
-  const { data: transactions, isLoading: transactionsLoading } = useBankStatementTransactions(selectedStatementId);
+  const { data: statementsRaw, isLoading } = useBankStatements() as unknown as { data?: BankStatement[]; isLoading: boolean };
+  const statements = statementsRaw ?? [];
+  const { data: transactionsRaw, isLoading: transactionsLoading } = useBankStatementTransactions(selectedStatementId) as unknown as { data?: BankStatementTransaction[]; isLoading: boolean };
+  const transactions = transactionsRaw ?? [];
   const { data: company } = useCompany();
   const { user, hasRole } = useAuth();
   const updateTransaction = useUpdateBankStatementTransaction();
