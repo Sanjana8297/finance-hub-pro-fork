@@ -13,9 +13,11 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency } from "@/lib/utils";
 import { format } from "date-fns";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Download, Eye, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { generatePayslipPDF, downloadPDF, Payslip } from "@/components/payroll/PayslipPDF";
+import { PayslipDialog } from "@/components/payroll/PayslipDialog";
 
 const statusLabel: Record<string, string> = {
   paid: "Paid",
@@ -66,6 +68,9 @@ const PayrollEmployeeDetails = () => {
   const [isRevisingAnnualCtc, setIsRevisingAnnualCtc] = useState(false);
   const [annualCtcDraft, setAnnualCtcDraft] = useState("0");
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedPayslip, setSelectedPayslip] = useState<Payslip | null>(null);
+  const [isPayslipDialogOpen, setIsPayslipDialogOpen] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const employeePayslips = useMemo(() => {
     return (payslipsData || []).filter((payslip) => payslip.employee_id === employeeId);
@@ -281,6 +286,178 @@ const PayrollEmployeeDetails = () => {
 
     loadEmployeeDetails();
   }, [employeeId, company?.id]);
+
+  // Calculate payslip breakdown from salary details - now async to fetch employee_details
+  const calculatePayslipBreakdown = async (payslipData: any): Promise<Payslip> => {
+    const periodStart = new Date(payslipData.period_start);
+    const periodEnd = new Date(payslipData.period_end);
+    const period = format(periodStart, "MMMM yyyy");
+    
+    // Calculate days in period
+    const daysInMonth = Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const paidDays = daysInMonth;
+    const lopDays = 0;
+
+    // Fetch employee_details directly - try multiple ways to get employee UUID
+    let empDetails: any = null;
+    let empUuid: string | null = employeeId || null;
+    
+    // If we don't have employeeId from route, try to get it from payslip
+    if (!empUuid && payslipData.employee_id) {
+      empUuid = payslipData.employee_id;
+    }
+    
+    if (empUuid) {
+      try {
+        // Check if it's a UUID format, if not, it might be employee_number
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(empUuid);
+        
+        if (!isUUID) {
+          // It's employee_number, get UUID from employees table
+          const { data: empData } = await supabase
+            .from("employees")
+            .select("id")
+            .eq("employee_number", empUuid)
+            .maybeSingle();
+          
+          if (empData) {
+            empUuid = empData.id;
+          } else {
+            console.error("Could not find employee with employee_number:", empUuid);
+            empUuid = null;
+          }
+        }
+        
+        if (empUuid) {
+          const { data } = await (supabase as any)
+            .from("employee_details")
+            .select("*")
+            .eq("employee_id", empUuid)
+            .maybeSingle();
+          empDetails = data;
+        }
+      } catch (error) {
+        console.error("Failed to fetch employee_details:", error);
+      }
+    }
+
+    // Get salary components from employee_details or calculate from basic salary
+    const basicMonthly = empDetails?.basic_monthly || Number(payslipData.basic_salary || 0);
+    const houseRentMonthly = empDetails?.house_rent_allowance_monthly || (basicMonthly * 0.4); // 40% of basic
+    const conveyanceMonthly = empDetails?.conveyance_allowance_monthly || salaryDetails.conveyanceAllowance || 0;
+    const medicalMonthly = empDetails?.medical_reimbursement_monthly || salaryDetails.medicalReimbursement || 0;
+    const otherBenefitMonthly = empDetails?.other_benefit_monthly || salaryDetails.otherBenefit || 0;
+    const specialAllowanceMonthly = empDetails?.special_allowance_monthly || salaryDetails.specialAllowance || 0;
+
+    // Professional Tax is common for all employees (₹200.00)
+    const professionalTax = 200.00;
+
+    // Calculate YTD by summing all payslips from the start of the year up to this period
+    const payslipYear = periodStart.getFullYear();
+    const yearStart = new Date(payslipYear, 0, 1);
+    
+    // Get all payslips for this employee from the start of the year up to this period
+    const ytdPayslips = employeePayslips.filter((p) => {
+      const pDate = new Date(p.period_start);
+      return pDate >= yearStart && pDate <= periodEnd;
+    });
+    
+    // Calculate YTD values by summing all payslips
+    const calculateYTD = (monthlyValue: number) => {
+      return monthlyValue * ytdPayslips.length;
+    };
+
+    const earnings = {
+      basic: basicMonthly,
+      houseRentAllowance: houseRentMonthly,
+      conveyanceAllowance: conveyanceMonthly,
+      medicalReimbursement: medicalMonthly,
+      otherBenefit: otherBenefitMonthly,
+      specialAllowance: specialAllowanceMonthly,
+    };
+
+    const earningsYTD = {
+      basic: calculateYTD(basicMonthly),
+      houseRentAllowance: calculateYTD(houseRentMonthly),
+      conveyanceAllowance: calculateYTD(conveyanceMonthly),
+      medicalReimbursement: calculateYTD(medicalMonthly),
+      otherBenefit: calculateYTD(otherBenefitMonthly),
+      specialAllowance: calculateYTD(specialAllowanceMonthly),
+    };
+
+    const deductions = {
+      professionalTax: professionalTax,
+    };
+
+    const deductionsYTD = {
+      professionalTax: calculateYTD(professionalTax),
+    };
+
+    const grossEarnings = basicMonthly + houseRentMonthly + conveyanceMonthly + 
+                          medicalMonthly + otherBenefitMonthly + specialAllowanceMonthly;
+    const totalDeductions = professionalTax;
+    const netPay = grossEarnings - totalDeductions;
+
+    return {
+      id: payslipData.id,
+      employee: {
+        name: empDetails?.name || employee?.full_name || "",
+        position: empDetails?.designation || employee?.position || "",
+        employeeId: employee?.employee_number || undefined,
+        dateOfJoining: empDetails?.date_of_joining || basicInformation.dateOfJoining || employee?.hire_date || undefined,
+        bankAccountNo: empDetails?.account_number || paymentInformation.accountNumber || undefined,
+        avatar: employee?.email || employee?.full_name || "employee",
+      },
+      period,
+      payDate: payslipData.pay_date || periodEnd.toISOString(),
+      paidDays,
+      lopDays,
+      earnings,
+      earningsYTD,
+      deductions,
+      deductionsYTD,
+      grossEarnings,
+      totalDeductions,
+      netPay,
+      status: (payslipData.status as "paid" | "pending" | "processing") || "pending",
+    };
+  };
+
+  const handleViewPayslip = async (payslipData: any) => {
+    const payslip = await calculatePayslipBreakdown(payslipData);
+    setSelectedPayslip(payslip);
+    setIsPayslipDialogOpen(true);
+  };
+
+  const handleDownloadPDF = async (payslipData: any) => {
+    try {
+      setDownloadingId(payslipData.id);
+      
+      const payslip = await calculatePayslipBreakdown(payslipData);
+      const blob = await generatePayslipPDF(
+        payslip,
+        "Techvitta Innovations Pvt Ltd",
+        "Plot No 19, Opp Cyber Pearl, Hitech City, Madhapur, Hyderabad Telangana 500081\nIndia"
+      );
+      
+      const filename = `Payslip_${payslip.employee.employeeId || payslip.id}_${format(new Date(payslipData.period_start), "MMM_yyyy")}.pdf`;
+      downloadPDF(blob, filename);
+      
+      toast({
+        title: "PDF downloaded",
+        description: `Payslip for ${payslip.employee.name} has been downloaded`,
+      });
+    } catch (error) {
+      console.error("PDF generation failed:", error);
+      toast({
+        title: "Download failed",
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const handleSaveEmployeeDetails = async (sectionName: string) => {
     if (!employeeId || !company?.id) {
@@ -772,18 +949,19 @@ const PayrollEmployeeDetails = () => {
                     <TableHead>Net Pay</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Pay Date</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                         Loading employee payslips...
                       </TableCell>
                     </TableRow>
                   ) : employeePayslips.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                         No payslips available for this employee.
                       </TableCell>
                     </TableRow>
@@ -803,6 +981,29 @@ const PayrollEmployeeDetails = () => {
                         <TableCell>
                           {payslip.pay_date ? format(new Date(payslip.pay_date), "MMM d, yyyy") : "N/A"}
                         </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewPayslip(payslip)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDownloadPDF(payslip)}
+                              disabled={downloadingId === payslip.id}
+                            >
+                              {downloadingId === payslip.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -812,6 +1013,15 @@ const PayrollEmployeeDetails = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Payslip Dialog */}
+      {selectedPayslip && (
+        <PayslipDialog
+          payslip={selectedPayslip}
+          open={isPayslipDialogOpen}
+          onOpenChange={setIsPayslipDialogOpen}
+        />
+      )}
     </DashboardLayout>
   );
 };

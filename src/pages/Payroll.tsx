@@ -40,13 +40,14 @@ import {
   Loader2,
 } from "lucide-react";
 import { PayslipDialog } from "@/components/payroll/PayslipDialog";
-import { generatePayslipPDF, downloadPDF } from "@/components/payroll/PayslipPDF";
+import { generatePayslipPDF, downloadPDF, Payslip } from "@/components/payroll/PayslipPDF";
 import { useToast } from "@/hooks/use-toast";
 import { useCompany } from "@/hooks/useCompany";
 import { usePayslips, usePayslipStats } from "@/hooks/usePayslips";
 import { format } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 
 interface PayslipDisplay {
   id: string;
@@ -86,7 +87,7 @@ const statusConfig = {
 
 const Payroll = () => {
   const navigate = useNavigate();
-  const [selectedPayslip, setSelectedPayslip] = useState<PayslipDisplay | null>(null);
+  const [selectedPayslip, setSelectedPayslip] = useState<Payslip | null>(null);
   const [isPayslipDialogOpen, setIsPayslipDialogOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
@@ -97,6 +98,158 @@ const Payroll = () => {
   const { data: payslipsData, isLoading } = usePayslips();
   const { data: stats } = usePayslipStats();
   const currency = company?.currency || "INR";
+
+  // Convert PayslipDisplay to Payslip format
+  const convertToPayslip = async (payslipDisplay: PayslipDisplay, payslipData: any): Promise<Payslip> => {
+    const periodStart = new Date(payslipData.period_start);
+    const periodEnd = new Date(payslipData.period_end);
+    const period = format(periodStart, "MMMM yyyy");
+    
+    // Calculate days in period
+    const daysInMonth = Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const paidDays = daysInMonth;
+    const lopDays = 0;
+
+    // Try to fetch employee_details for salary breakdown
+    let employeeDetails: any = null;
+    let employeeUuid: string | null = payslipDisplay.employeeId;
+    
+    // If employeeId is employee_number, we need to get the UUID first
+    if (employeeUuid) {
+      try {
+        // Check if it's a UUID format, if not, it's probably employee_number
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employeeUuid);
+        
+        if (!isUUID) {
+          // It's employee_number, get UUID from employees table
+          const { data: empData } = await supabase
+            .from("employees")
+            .select("id")
+            .eq("employee_number", employeeUuid)
+            .maybeSingle();
+          
+          if (empData) {
+            employeeUuid = empData.id;
+          }
+        }
+        
+        // Now fetch employee_details using UUID
+        const { data } = await (supabase as any)
+          .from("employee_details")
+          .select("*")
+          .eq("employee_id", employeeUuid)
+          .maybeSingle();
+        employeeDetails = data;
+      } catch (error) {
+        console.log("Could not fetch employee_details:", error);
+      }
+    }
+
+    // Calculate salary components from employee_details if available
+    const basicMonthly = employeeDetails?.basic_monthly || Number(payslipDisplay.basicSalary || 0);
+    const houseRentMonthly = employeeDetails?.house_rent_allowance_monthly || (basicMonthly * 0.4); // 40% of basic
+    
+    // Use employee_details if available, otherwise calculate from allowances
+    const totalAllowances = Number(payslipDisplay.allowances || 0);
+    const conveyanceMonthly = employeeDetails?.conveyance_allowance_monthly || (totalAllowances * 0.2);
+    const medicalMonthly = employeeDetails?.medical_reimbursement_monthly || (totalAllowances * 0.15);
+    const otherBenefitMonthly = employeeDetails?.other_benefit_monthly || (totalAllowances * 0.25);
+    const specialAllowanceMonthly = employeeDetails?.special_allowance_monthly || (totalAllowances * 0.4);
+
+    // Professional Tax is common for all employees (₹200.00)
+    const professionalTax = 200.00;
+
+    // Calculate YTD by counting payslips from start of year
+    const payslipYear = periodStart.getFullYear();
+    const yearStart = new Date(payslipYear, 0, 1);
+    let ytdMultiplier = 1;
+    
+    if (employeeUuid) {
+      try {
+        const { data: payslipsData } = await supabase
+          .from("payslips")
+          .select("id")
+          .eq("employee_id", employeeUuid)
+          .gte("period_start", yearStart.toISOString().split('T')[0])
+          .lte("period_start", periodEnd.toISOString().split('T')[0]);
+        
+        if (payslipsData) {
+          ytdMultiplier = payslipsData.length || 1;
+        }
+      } catch (error) {
+        console.log("Could not fetch payslips for YTD:", error);
+        // Fallback to month-based calculation
+        const currentMonth = new Date().getMonth();
+        const payslipMonth = periodStart.getMonth();
+        const currentYear = new Date().getFullYear();
+        ytdMultiplier = (payslipYear === currentYear && payslipMonth <= currentMonth) 
+          ? (payslipMonth + 1) 
+          : 12;
+      }
+    }
+
+    const earnings = {
+      basic: basicMonthly,
+      houseRentAllowance: houseRentMonthly,
+      conveyanceAllowance: conveyanceMonthly,
+      medicalReimbursement: medicalMonthly,
+      otherBenefit: otherBenefitMonthly,
+      specialAllowance: specialAllowanceMonthly,
+    };
+
+    const earningsYTD = {
+      basic: basicMonthly * ytdMultiplier,
+      houseRentAllowance: houseRentMonthly * ytdMultiplier,
+      conveyanceAllowance: conveyanceMonthly * ytdMultiplier,
+      medicalReimbursement: medicalMonthly * ytdMultiplier,
+      otherBenefit: otherBenefitMonthly * ytdMultiplier,
+      specialAllowance: specialAllowanceMonthly * ytdMultiplier,
+    };
+
+    const deductions = {
+      professionalTax: professionalTax,
+    };
+
+    const deductionsYTD = {
+      professionalTax: professionalTax * ytdMultiplier,
+    };
+
+    const grossEarnings = basicMonthly + houseRentMonthly + conveyanceMonthly + 
+                          medicalMonthly + otherBenefitMonthly + specialAllowanceMonthly;
+    const totalDeductions = professionalTax;
+    const netPay = grossEarnings - totalDeductions;
+
+    // Fetch employee details for bank account
+    const employee = payslipData.employees;
+    let bankAccountNo: string | undefined;
+    if (employeeDetails?.account_number) {
+      bankAccountNo = employeeDetails.account_number;
+    }
+
+    return {
+      id: payslipDisplay.id,
+      employee: {
+        name: employeeDetails?.name || payslipDisplay.employee.name,
+        position: employeeDetails?.designation || payslipDisplay.employee.position,
+        employeeId: employee?.employee_number || undefined,
+        dateOfJoining: employeeDetails?.date_of_joining || employee?.hire_date || undefined,
+        bankAccountNo: employeeDetails?.account_number || bankAccountNo,
+        avatar: payslipDisplay.employee.avatar,
+      },
+      period,
+      payDate: payslipData.pay_date || periodEnd.toISOString(),
+      paidDays,
+      lopDays,
+      earnings,
+      earningsYTD,
+      deductions,
+      deductionsYTD,
+      grossEarnings,
+      totalDeductions,
+      netPay,
+      status: payslipDisplay.status,
+    };
+  };
 
   // Transform database payslips to display format
   const payslips: PayslipDisplay[] = (payslipsData || []).map((payslip) => {
@@ -147,7 +300,11 @@ const Payroll = () => {
     ? payslips[0].period 
     : format(new Date(), "MMMM yyyy");
 
-  const handleViewPayslip = (payslip: PayslipDisplay) => {
+  const handleViewPayslip = async (payslipDisplay: PayslipDisplay) => {
+    const payslipData = payslipsData?.find(p => p.id === payslipDisplay.id);
+    if (!payslipData) return;
+    
+    const payslip = await convertToPayslip(payslipDisplay, payslipData);
     setSelectedPayslip(payslip);
     setIsPayslipDialogOpen(true);
   };
@@ -166,17 +323,23 @@ const Payroll = () => {
     navigate(detailsUrl);
   };
 
-  const handleDownloadPDF = async (payslip: PayslipDisplay) => {
+  const handleDownloadPDF = async (payslipDisplay: PayslipDisplay) => {
     try {
-      setDownloadingId(payslip.id);
+      setDownloadingId(payslipDisplay.id);
       
+      const payslipData = payslipsData?.find(p => p.id === payslipDisplay.id);
+      if (!payslipData) {
+        throw new Error("Payslip data not found");
+      }
+      
+      const payslip = await convertToPayslip(payslipDisplay, payslipData);
       const blob = await generatePayslipPDF(
         payslip,
-        company?.name || undefined,
-        company?.address || undefined
+        "Techvitta Innovations Pvt Ltd",
+        "Plot No 19, Opp Cyber Pearl, Hitech City, Madhapur, Hyderabad Telangana 500081\nIndia"
       );
       
-      const filename = `payslip-${payslip.employee.name.replace(/\s+/g, "-")}-${payslip.period.replace(/\s+/g, "-")}.pdf`;
+      const filename = `Payslip_${payslip.employee.employeeId || payslip.id}_${payslip.period.replace(/\s+/g, "_")}.pdf`;
       downloadPDF(blob, filename);
       
       toast({
@@ -195,14 +358,20 @@ const Payroll = () => {
     }
   };
 
-  const handlePrint = async (payslip: PayslipDisplay) => {
+  const handlePrint = async (payslipDisplay: PayslipDisplay) => {
     try {
-      setPrintingId(payslip.id);
+      setPrintingId(payslipDisplay.id);
       
+      const payslipData = payslipsData?.find(p => p.id === payslipDisplay.id);
+      if (!payslipData) {
+        throw new Error("Payslip data not found");
+      }
+      
+      const payslip = await convertToPayslip(payslipDisplay, payslipData);
       const blob = await generatePayslipPDF(
         payslip,
-        company?.name || undefined,
-        company?.address || undefined
+        "Techvitta Innovations Pvt Ltd",
+        "Plot No 19, Opp Cyber Pearl, Hitech City, Madhapur, Hyderabad Telangana 500081\nIndia"
       );
       
       // Create object URL and open in new window for printing

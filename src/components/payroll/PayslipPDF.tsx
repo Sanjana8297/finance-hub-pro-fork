@@ -7,192 +7,263 @@ import {
   pdf,
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { numberToWords } from "@/lib/utils";
+
+interface PayslipEarnings {
+  basic: number;
+  houseRentAllowance: number;
+  conveyanceAllowance: number;
+  medicalReimbursement: number;
+  otherBenefit: number;
+  specialAllowance: number;
+}
+
+interface PayslipEarningsYTD {
+  basic: number;
+  houseRentAllowance: number;
+  conveyanceAllowance: number;
+  medicalReimbursement: number;
+  otherBenefit: number;
+  specialAllowance: number;
+}
+
+interface PayslipDeductions {
+  professionalTax: number;
+}
+
+interface PayslipDeductionsYTD {
+  professionalTax: number;
+}
 
 interface Payslip {
   id: string;
   employee: {
     name: string;
     position: string;
+    employeeId?: string;
+    dateOfJoining?: string;
+    bankAccountNo?: string;
     avatar: string;
   };
   period: string;
-  basicSalary: number;
-  allowances: number;
-  deductions: number;
+  payDate: string;
+  paidDays: number;
+  lopDays: number;
+  earnings: PayslipEarnings;
+  earningsYTD: PayslipEarningsYTD;
+  deductions: PayslipDeductions;
+  deductionsYTD: PayslipDeductionsYTD;
+  grossEarnings: number;
+  totalDeductions: number;
   netPay: number;
   status: "paid" | "pending" | "processing";
-  payDate: string;
 }
 
 const styles = StyleSheet.create({
   page: {
-    padding: 40,
+    padding: 30,
     fontSize: 10,
     fontFamily: "Helvetica",
     backgroundColor: "#ffffff",
   },
   header: {
+    marginBottom: 20,
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 40,
+    alignItems: "flex-start",
   },
   companyInfo: {
-    maxWidth: 200,
+    flex: 1,
   },
   companyName: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#111827",
-    marginBottom: 8,
-  },
-  companyDetails: {
-    fontSize: 9,
-    color: "#6b7280",
-    lineHeight: 1.5,
-  },
-  payslipTitle: {
-    textAlign: "right",
-  },
-  payslipLabel: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#111827",
-    marginBottom: 8,
-  },
-  payslipPeriod: {
-    fontSize: 11,
-    color: "#6b7280",
-    marginBottom: 4,
-  },
-  payslipDate: {
-    fontSize: 9,
-    color: "#6b7280",
-  },
-  statusBadge: {
-    marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 4,
-    alignSelf: "flex-end",
-  },
-  statusPaid: {
-    backgroundColor: "#dcfce7",
-    color: "#166534",
-  },
-  statusPending: {
-    backgroundColor: "#fef3c7",
-    color: "#92400e",
-  },
-  statusProcessing: {
-    backgroundColor: "#dbeafe",
-    color: "#1e40af",
-  },
-  employeeSection: {
-    marginBottom: 30,
-  },
-  sectionLabel: {
-    fontSize: 8,
-    color: "#9ca3af",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  employeeName: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#111827",
+    color: "#000000",
     marginBottom: 4,
   },
-  employeePosition: {
-    fontSize: 10,
-    color: "#6b7280",
-    lineHeight: 1.5,
+  companyAddress: {
+    fontSize: 9,
+    color: "#000000",
+    lineHeight: 1.4,
+  },
+  payslipTitleContainer: {
+    alignItems: "flex-end",
+  },
+  payslipTitle: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#000000",
+    textAlign: "right",
+  },
+  employeeSummary: {
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#000000",
+    padding: 10,
+  },
+  summaryTitle: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#000000",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  summaryRow: {
+    flexDirection: "row",
+    marginBottom: 4,
+    fontSize: 9,
+  },
+  summaryLabel: {
+    fontWeight: "bold",
+    width: "40%",
+    color: "#000000",
+  },
+  summaryValue: {
+    width: "60%",
+    color: "#000000",
+  },
+  netPayHighlight: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#000000",
+    textAlign: "center",
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  daysInfo: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+    fontSize: 9,
   },
   table: {
-    marginBottom: 30,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#000000",
+    width: "100%",
   },
   tableHeader: {
     flexDirection: "row",
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#f0f0f0",
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderBottomColor: "#000000",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    width: "100%",
   },
   tableRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    borderBottomColor: "#e0e0e0",
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    width: "100%",
   },
   tableHeaderText: {
     fontSize: 8,
     fontWeight: "bold",
-    color: "#6b7280",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    color: "#000000",
   },
   tableCell: {
-    fontSize: 10,
-    color: "#374151",
+    fontSize: 9,
+    color: "#000000",
   },
-  descriptionCol: {
-    flex: 2,
+  earningsCol: {
+    flex: 3,
+    paddingRight: 4,
+  },
+  deductionsCol: {
+    flex: 3,
+    paddingRight: 4,
+    paddingLeft: 4,
   },
   amountCol: {
-    flex: 1,
+    flex: 2,
     textAlign: "right",
+    paddingLeft: 4,
+    paddingRight: 4,
   },
-  totalsSection: {
-    alignItems: "flex-end",
-    marginBottom: 40,
+  ytdCol: {
+    flex: 2,
+    textAlign: "right",
+    paddingLeft: 4,
+    paddingRight: 4,
   },
-  totalsBox: {
-    width: 220,
-  },
-  totalRow: {
+  totalsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: "#000000",
     paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: "#f9f9f9",
+    width: "100%",
   },
-  totalLabel: {
-    fontSize: 10,
-    color: "#6b7280",
-  },
-  totalValue: {
-    fontSize: 10,
-    color: "#111827",
-  },
-  grandTotalRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    borderTopWidth: 2,
-    borderTopColor: "#111827",
-    marginTop: 8,
-  },
-  grandTotalLabel: {
-    fontSize: 12,
+  totalsLabel: {
+    fontSize: 9,
     fontWeight: "bold",
-    color: "#111827",
+    flex: 3,
+    color: "#000000",
+    paddingRight: 4,
   },
-  grandTotalValue: {
+  totalsAmount: {
+    fontSize: 9,
+    fontWeight: "bold",
+    flex: 2,
+    textAlign: "right",
+    color: "#000000",
+    paddingLeft: 4,
+    paddingRight: 4,
+  },
+  totalsYTD: {
+    fontSize: 9,
+    fontWeight: "bold",
+    flex: 2,
+    textAlign: "right",
+    color: "#000000",
+    paddingLeft: 4,
+    paddingRight: 4,
+  },
+  netPayableSection: {
+    marginTop: 15,
+    borderWidth: 1,
+    borderColor: "#000000",
+    padding: 10,
+  },
+  netPayableTitle: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#000000",
+    marginBottom: 4,
+  },
+  netPayableFormula: {
+    fontSize: 9,
+    color: "#000000",
+    marginBottom: 6,
+  },
+  netPayableAmount: {
     fontSize: 14,
     fontWeight: "bold",
-    color: "#111827",
+    color: "#000000",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  amountInWords: {
+    fontSize: 9,
+    color: "#000000",
+    fontStyle: "italic",
+    textAlign: "center",
   },
   footer: {
     position: "absolute",
-    bottom: 30,
-    left: 40,
-    right: 40,
+    bottom: 20,
+    left: 30,
+    right: 30,
     textAlign: "center",
-    color: "#9ca3af",
+    color: "#666666",
     fontSize: 8,
     borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
-    paddingTop: 15,
+    borderTopColor: "#e0e0e0",
+    paddingTop: 10,
   },
 });
 
@@ -207,23 +278,19 @@ const PayslipPDFDocument = ({
   companyName,
   companyAddress,
 }: PayslipPDFProps) => {
-  const getStatusStyle = () => {
-    switch (payslip.status) {
-      case "paid":
-        return styles.statusPaid;
-      case "pending":
-        return styles.statusPending;
-      case "processing":
-        return styles.statusProcessing;
-      default:
-        return styles.statusPending;
-    }
+  const formatCurrency = (amount: number) => {
+    // Format with Rs. prefix to avoid rendering issues with rupee symbol
+    const formatted = new Intl.NumberFormat("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+    return `Rs. ${formatted}`;
   };
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrencyNoSymbol = (amount: number) => {
     return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   };
 
@@ -233,107 +300,212 @@ const PayslipPDFDocument = ({
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.companyInfo}>
-            <Text style={styles.companyName}>{companyName}</Text>
-            <Text style={styles.companyDetails}>{companyAddress}</Text>
-          </View>
-          <View style={styles.payslipTitle}>
-            <Text style={styles.payslipLabel}>PAYSLIP</Text>
-            <Text style={styles.payslipPeriod}>{payslip.period}</Text>
-            <Text style={styles.payslipDate}>
-              Pay Date: {payslip.payDate}
+            <Text style={styles.companyName}>
+              Techvitta Innovations Pvt Ltd
             </Text>
-            <View style={[styles.statusBadge, getStatusStyle()]}>
-              <Text style={{ fontSize: 8, fontWeight: "bold" }}>
-                {payslip.status.toUpperCase()}
-              </Text>
-            </View>
+            <Text style={styles.companyAddress}>
+              Plot No 19, Opp Cyber Pearl, Hitech City, Madhapur, Hyderabad Telangana 500081{'\n'}India
+            </Text>
+          </View>
+          <View style={styles.payslipTitleContainer}>
+            <Text style={styles.payslipTitle}>Payslip For the Month</Text>
+            <Text style={styles.payslipTitle}>{payslip.period}</Text>
           </View>
         </View>
 
-        {/* Employee Info */}
-        <View style={styles.employeeSection}>
-          <Text style={styles.sectionLabel}>Employee</Text>
-          <Text style={styles.employeeName}>{payslip.employee.name}</Text>
-          <Text style={styles.employeePosition}>
-            {payslip.employee.position}
+        {/* Employee Summary */}
+        <View style={styles.employeeSummary}>
+          <Text style={styles.summaryTitle}># EMPLOYEE SUMMARY</Text>
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Employee Name :</Text>
+            <Text style={styles.summaryValue}>{payslip.employee.name}</Text>
+          </View>
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Designation :</Text>
+            <Text style={styles.summaryValue}>{payslip.employee.position}</Text>
+          </View>
+          
+          {payslip.employee.employeeId && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Employee ID :</Text>
+              <Text style={styles.summaryValue}>{payslip.employee.employeeId}</Text>
+            </View>
+          )}
+          
+          {payslip.employee.dateOfJoining && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Date of Joining :</Text>
+              <Text style={styles.summaryValue}>
+                {format(new Date(payslip.employee.dateOfJoining), "dd/MM/yyyy")}
+              </Text>
+            </View>
+          )}
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Pay Period :</Text>
+            <Text style={styles.summaryValue}>{payslip.period}</Text>
+          </View>
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Pay Date :</Text>
+            <Text style={styles.summaryValue}>
+              {format(new Date(payslip.payDate), "dd/MM/yyyy")}
+            </Text>
+          </View>
+
+          <Text style={styles.netPayHighlight}>
+            {formatCurrency(payslip.netPay)}
           </Text>
+          <Text style={{ fontSize: 10, fontWeight: "bold", textAlign: "center", marginBottom: 4 }}>
+            Total Net Pay
+          </Text>
+
+          <View style={styles.daysInfo}>
+            <Text style={{ fontSize: 9 }}>Paid Days : {payslip.paidDays}</Text>
+            <Text style={{ fontSize: 9 }}>LOP Days : {payslip.lopDays}</Text>
+          </View>
+
+          {payslip.employee.bankAccountNo && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Bank Account No :</Text>
+              <Text style={styles.summaryValue}>{payslip.employee.bankAccountNo}</Text>
+            </View>
+          )}
         </View>
 
-        {/* Earnings Table */}
+        {/* Earnings and Deductions Table */}
         <View style={styles.table}>
           <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderText, styles.descriptionCol]}>
-              Earnings
+            <Text style={[styles.tableHeaderText, styles.earningsCol]}>EARNINGS</Text>
+            <Text style={[styles.tableHeaderText, styles.amountCol]}>AMOUNT</Text>
+            <Text style={[styles.tableHeaderText, styles.ytdCol]}>YTD</Text>
+            <Text style={[styles.tableHeaderText, styles.deductionsCol]}>DEDUCTIONS</Text>
+            <Text style={[styles.tableHeaderText, styles.amountCol]}>AMOUNT</Text>
+            <Text style={[styles.tableHeaderText, styles.ytdCol]}>YTD</Text>
+          </View>
+
+          {/* Basic */}
+          <View style={styles.tableRow}>
+            <Text style={[styles.tableCell, styles.earningsCol]}>Basic</Text>
+            <Text style={[styles.tableCell, styles.amountCol]}>
+              {formatCurrencyNoSymbol(payslip.earnings.basic)}
             </Text>
-            <Text style={[styles.tableHeaderText, styles.amountCol]}>
-              Amount
+            <Text style={[styles.tableCell, styles.ytdCol]}>
+              {formatCurrencyNoSymbol(payslip.earningsYTD.basic)}
+            </Text>
+            <Text style={[styles.tableCell, styles.deductionsCol]}>Professional Tax</Text>
+            <Text style={[styles.tableCell, styles.amountCol]}>
+              {formatCurrencyNoSymbol(payslip.deductions.professionalTax)}
+            </Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}>
+              {formatCurrencyNoSymbol(payslip.deductionsYTD.professionalTax)}
             </Text>
           </View>
+
+          {/* House Rent Allowance */}
           <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.descriptionCol]}>
-              Basic Salary
-            </Text>
+            <Text style={[styles.tableCell, styles.earningsCol]}>House Rent Allowance</Text>
             <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrency(payslip.basicSalary)}
+              {formatCurrencyNoSymbol(payslip.earnings.houseRentAllowance)}
             </Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}>
+              {formatCurrencyNoSymbol(payslip.earningsYTD.houseRentAllowance)}
+            </Text>
+            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
+            <Text style={[styles.tableCell, styles.amountCol]}></Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
           </View>
+
+          {/* Conveyance Allowance */}
           <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.descriptionCol]}>
-              Allowances
-            </Text>
+            <Text style={[styles.tableCell, styles.earningsCol]}>Conveyance Allowance</Text>
             <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrency(payslip.allowances)}
+              {formatCurrencyNoSymbol(payslip.earnings.conveyanceAllowance)}
             </Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}>
+              {formatCurrencyNoSymbol(payslip.earningsYTD.conveyanceAllowance)}
+            </Text>
+            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
+            <Text style={[styles.tableCell, styles.amountCol]}></Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
+          </View>
+
+          {/* Medical Reimbursement */}
+          <View style={styles.tableRow}>
+            <Text style={[styles.tableCell, styles.earningsCol]}>Medical Reimbursement</Text>
+            <Text style={[styles.tableCell, styles.amountCol]}>
+              {formatCurrencyNoSymbol(payslip.earnings.medicalReimbursement)}
+            </Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}>
+              {formatCurrencyNoSymbol(payslip.earningsYTD.medicalReimbursement)}
+            </Text>
+            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
+            <Text style={[styles.tableCell, styles.amountCol]}></Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
+          </View>
+
+          {/* Other Benefit */}
+          <View style={styles.tableRow}>
+            <Text style={[styles.tableCell, styles.earningsCol]}>Other Benefit</Text>
+            <Text style={[styles.tableCell, styles.amountCol]}>
+              {formatCurrencyNoSymbol(payslip.earnings.otherBenefit)}
+            </Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}>
+              {formatCurrencyNoSymbol(payslip.earningsYTD.otherBenefit)}
+            </Text>
+            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
+            <Text style={[styles.tableCell, styles.amountCol]}></Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
+          </View>
+
+          {/* Special Allowance */}
+          <View style={styles.tableRow}>
+            <Text style={[styles.tableCell, styles.earningsCol]}>Special Allowance</Text>
+            <Text style={[styles.tableCell, styles.amountCol]}>
+              {formatCurrencyNoSymbol(payslip.earnings.specialAllowance)}
+            </Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}>
+              {formatCurrencyNoSymbol(payslip.earningsYTD.specialAllowance)}
+            </Text>
+            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
+            <Text style={[styles.tableCell, styles.amountCol]}></Text>
+            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
+          </View>
+
+          {/* Totals */}
+          <View style={styles.totalsRow}>
+            <Text style={styles.totalsLabel}>Gross Earnings</Text>
+            <Text style={styles.totalsAmount}>
+              {formatCurrencyNoSymbol(payslip.grossEarnings)}
+            </Text>
+            <Text style={styles.totalsYTD}></Text>
+            <Text style={styles.totalsLabel}>Total Deductions</Text>
+            <Text style={styles.totalsAmount}>
+              {formatCurrencyNoSymbol(payslip.totalDeductions)}
+            </Text>
+            <Text style={styles.totalsYTD}></Text>
           </View>
         </View>
 
-        {/* Deductions Table */}
-        <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderText, styles.descriptionCol]}>
-              Deductions
-            </Text>
-            <Text style={[styles.tableHeaderText, styles.amountCol]}>
-              Amount
-            </Text>
-          </View>
-          <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.descriptionCol]}>
-              Total Deductions
-            </Text>
-            <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrency(payslip.deductions)}
-            </Text>
-          </View>
-        </View>
-
-        {/* Totals */}
-        <View style={styles.totalsSection}>
-          <View style={styles.totalsBox}>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Gross Pay</Text>
-              <Text style={styles.totalValue}>
-                {formatCurrency(payslip.basicSalary + payslip.allowances)}
-              </Text>
-            </View>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total Deductions</Text>
-              <Text style={styles.totalValue}>
-                {formatCurrency(payslip.deductions)}
-              </Text>
-            </View>
-            <View style={styles.grandTotalRow}>
-              <Text style={styles.grandTotalLabel}>Net Pay</Text>
-              <Text style={styles.grandTotalValue}>
-                {formatCurrency(payslip.netPay)}
-              </Text>
-            </View>
-          </View>
+        {/* Net Payable Section */}
+        <View style={styles.netPayableSection}>
+          <Text style={styles.netPayableTitle}>TOTAL NET PAYABLE</Text>
+          <Text style={styles.netPayableFormula}>
+            Gross Earnings - Total Deductions
+          </Text>
+          <Text style={styles.netPayableAmount}>
+            {formatCurrency(payslip.netPay)}
+          </Text>
+          <Text style={styles.amountInWords}>
+            Amount In Words : Indian Rupee {numberToWords(payslip.netPay)}
+          </Text>
         </View>
 
         {/* Footer */}
         <Text style={styles.footer}>
-          This is a computer-generated payslip. • {payslip.period}
+          -- This is a system-generated document. --
         </Text>
       </Page>
     </Document>
@@ -366,3 +538,5 @@ export function downloadPDF(blob: Blob, filename: string) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+export type { Payslip, PayslipEarnings, PayslipEarningsYTD, PayslipDeductions, PayslipDeductionsYTD };
