@@ -46,7 +46,6 @@ export function PayslipDialog({
 }: PayslipDialogProps) {
   const [employeeDetails, setEmployeeDetails] = useState<any>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [payslipsForYTD, setPayslipsForYTD] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchEmployeeDetails = async () => {
@@ -99,23 +98,6 @@ export function PayslipDialog({
           console.error("Failed to load employee_details:", empError);
         } else {
           setEmployeeDetails(empDetails);
-        }
-
-        // Fetch all payslips for this employee from the start of the year for YTD calculation
-        const periodStart = new Date(payslip.payDate);
-        const payslipYear = periodStart.getFullYear();
-        const yearStart = new Date(payslipYear, 0, 1);
-        
-        const { data: payslipsData } = await supabase
-          .from("payslips")
-          .select("id, period_start")
-          .eq("employee_id", employeeUuid)
-          .gte("period_start", yearStart.toISOString().split('T')[0])
-          .lte("period_start", periodStart.toISOString().split('T')[0])
-          .order("period_start", { ascending: true });
-
-        if (payslipsData) {
-          setPayslipsForYTD(payslipsData);
         }
       } catch (error) {
         console.error("Error fetching employee details:", error);
@@ -184,20 +166,18 @@ export function PayslipDialog({
   const totalDeductions = professionalTax;
   const netPay = earnings.grossEarnings - totalDeductions;
 
-  // Calculate YTD values by counting payslips from the start of the year
-  const ytdMultiplier = payslipsForYTD.length || 1;
-
+  // Calculate YTD values as annual values (monthly * 12)
   const earningsYTD = {
-    basic: earnings.basic * ytdMultiplier,
-    houseRentAllowance: earnings.houseRentAllowance * ytdMultiplier,
-    conveyanceAllowance: earnings.conveyanceAllowance * ytdMultiplier,
-    medicalReimbursement: earnings.medicalReimbursement * ytdMultiplier,
-    otherBenefit: earnings.otherBenefit * ytdMultiplier,
-    specialAllowance: earnings.specialAllowance * ytdMultiplier,
+    basic: earnings.basic * 12,
+    houseRentAllowance: earnings.houseRentAllowance * 12,
+    conveyanceAllowance: earnings.conveyanceAllowance * 12,
+    medicalReimbursement: earnings.medicalReimbursement * 12,
+    otherBenefit: earnings.otherBenefit * 12,
+    specialAllowance: earnings.specialAllowance * 12,
   };
 
   const deductionsYTD = {
-    professionalTax: professionalTax * ytdMultiplier,
+    professionalTax: professionalTax * 12,
   };
 
   return (

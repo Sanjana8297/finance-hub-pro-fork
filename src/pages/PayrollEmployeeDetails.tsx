@@ -13,8 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency } from "@/lib/utils";
 import { format } from "date-fns";
-import { ArrowLeft, Download, Eye, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Download, Eye, Loader2, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { generatePayslipPDF, downloadPDF, Payslip } from "@/components/payroll/PayslipPDF";
 import { PayslipDialog } from "@/components/payroll/PayslipDialog";
@@ -71,6 +71,13 @@ const PayrollEmployeeDetails = () => {
   const [selectedPayslip, setSelectedPayslip] = useState<Payslip | null>(null);
   const [isPayslipDialogOpen, setIsPayslipDialogOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [employeeDetailsData, setEmployeeDetailsData] = useState<any>(null);
+  const [customSalaryComponents, setCustomSalaryComponents] = useState<Array<{ id: string; label: string; monthly: number }>>([]);
+  const [lastAddedComponentId, setLastAddedComponentId] = useState<string | null>(null);
+  const componentRowRefs = useRef<{ [key: string]: HTMLTableRowElement | null }>({});
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [editingComponentId, setEditingComponentId] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<string | null>(null);
 
   const employeePayslips = useMemo(() => {
     return (payslipsData || []).filter((payslip) => payslip.employee_id === employeeId);
@@ -79,6 +86,55 @@ const PayrollEmployeeDetails = () => {
   const latestPayslip = employeePayslips[0];
   const employee = latestPayslip?.employees;
   const currency = company?.currency || "INR";
+
+  // Calculate payslip values from employee_details for display in table
+  const calculatePayslipValues = (payslipData: any) => {
+    // Use employee_details if available, otherwise fallback to payslip data
+    let basicMonthly: number;
+    let houseRentMonthly: number;
+    let conveyanceMonthly: number;
+    let medicalMonthly: number;
+    let otherBenefitMonthly: number;
+    let specialAllowanceMonthly: number;
+    
+    if (employeeDetailsData) {
+      // Use employee_details data directly
+      basicMonthly = Number(employeeDetailsData.basic_monthly || 0);
+      houseRentMonthly = Number(employeeDetailsData.house_rent_allowance_monthly || 0);
+      conveyanceMonthly = Number(employeeDetailsData.conveyance_allowance_monthly || 0);
+      medicalMonthly = Number(employeeDetailsData.medical_reimbursement_monthly || 0);
+      otherBenefitMonthly = Number(employeeDetailsData.other_benefit_monthly || 0);
+      specialAllowanceMonthly = Number(employeeDetailsData.special_allowance_monthly || 0);
+    } else if (salaryDetails.annualCtc > 0) {
+      // Fallback to calculated values from salaryDetails state
+      basicMonthly = (salaryDetails.annualCtc / 12) * 0.5; // 50% of monthly CTC
+      houseRentMonthly = basicMonthly * 0.4; // 40% of basic
+      conveyanceMonthly = salaryDetails.conveyanceAllowance || 0;
+      medicalMonthly = salaryDetails.medicalReimbursement || 0;
+      otherBenefitMonthly = salaryDetails.otherBenefit || 0;
+      specialAllowanceMonthly = salaryDetails.specialAllowance || 0;
+    } else {
+      // Final fallback to payslip data
+      basicMonthly = Number(payslipData.basic_salary || 0);
+      houseRentMonthly = basicMonthly * 0.4;
+      conveyanceMonthly = 0;
+      medicalMonthly = 0;
+      otherBenefitMonthly = 0;
+      specialAllowanceMonthly = 0;
+    }
+    
+    const totalAllowances = houseRentMonthly + conveyanceMonthly + medicalMonthly + 
+                           otherBenefitMonthly + specialAllowanceMonthly;
+    const professionalTax = 200.00; // Common for all employees
+    const netPay = basicMonthly + totalAllowances - professionalTax;
+    
+    return {
+      basic: basicMonthly,
+      allowances: totalAllowances,
+      deductions: professionalTax,
+      netPay: netPay,
+    };
+  };
 
   useEffect(() => {
     setBasicInformation({
@@ -157,6 +213,9 @@ const PayrollEmployeeDetails = () => {
   const houseRentMonthly = basicMonthly * 0.4;
   const houseRentAnnual = houseRentMonthly * 12;
 
+  const professionalTaxMonthly = 200.00;
+  const professionalTaxAnnual = professionalTaxMonthly * 12;
+
   const salaryRows = [
     {
       key: "basic",
@@ -210,22 +269,152 @@ const PayrollEmployeeDetails = () => {
       editable: true,
       field: "specialAllowance" as const,
     },
+    {
+      key: "professional-tax",
+      label: "Professional Tax",
+      description: "Constant Deduction",
+      monthly: professionalTaxMonthly,
+      annual: professionalTaxAnnual,
+      editable: false,
+      isDeduction: true,
+    },
   ];
 
+  // Add custom components to salary rows
+  const allSalaryRows = [
+    ...salaryRows,
+    ...customSalaryComponents.map((component) => ({
+      key: component.id,
+      label: component.label,
+      description: "Custom Component",
+      monthly: component.monthly,
+      annual: component.monthly * 12,
+      editable: true,
+      isCustom: true,
+    })),
+  ];
+
+  const customComponentsTotal = customSalaryComponents.reduce((sum, comp) => sum + comp.monthly, 0);
+  
+  // CTC includes earnings only, not deductions like Professional Tax
   const totalMonthlyCtc =
     basicMonthly +
     houseRentMonthly +
     salaryDetails.conveyanceAllowance +
     salaryDetails.medicalReimbursement +
     salaryDetails.otherBenefit +
-    salaryDetails.specialAllowance;
+    salaryDetails.specialAllowance +
+    customComponentsTotal;
   const totalAnnualCtc = salaryDetails.annualCtc;
+  
+  // Net Pay = CTC - Professional Tax
+  const netPayMonthly = totalMonthlyCtc - professionalTaxMonthly;
+  const netPayAnnual = totalAnnualCtc - professionalTaxAnnual;
 
   const parseCurrencyInput = (value: string) => {
     const parsed = Number(value);
     if (Number.isNaN(parsed)) return 0;
     return Math.max(parsed, 0);
   };
+
+  const handleAddCustomComponent = () => {
+    const newComponent = {
+      id: `custom-${Date.now()}`,
+      label: "",
+      monthly: 0,
+    };
+    setCustomSalaryComponents([...customSalaryComponents, newComponent]);
+    setLastAddedComponentId(newComponent.id);
+    
+    // Scroll to the new row after a short delay to ensure DOM is updated
+    setTimeout(() => {
+      const rowElement = componentRowRefs.current[newComponent.id];
+      if (rowElement) {
+        rowElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 100);
+  };
+
+  const handleRemoveCustomComponent = (id: string) => {
+    setCustomSalaryComponents(customSalaryComponents.filter((comp) => comp.id !== id));
+  };
+
+  const handleUpdateCustomComponent = (id: string, field: "label" | "monthly", value: string | number) => {
+    setCustomSalaryComponents(
+      customSalaryComponents.map((comp) =>
+        comp.id === id ? { ...comp, [field]: value } : comp
+      )
+    );
+  };
+
+  // Auto-save custom components when data is complete
+  const autoSaveCustomComponents = async () => {
+    if (!employeeId || !company?.id) return;
+    
+    // Filter out incomplete components (empty label or zero amount)
+    const completeComponents = customSalaryComponents.filter(
+      (comp) => comp.label.trim() && comp.monthly > 0
+    );
+    
+    // Only save if there are complete custom components
+    if (completeComponents.length === 0 && customSalaryComponents.length === 0) return;
+    
+    try {
+      setIsAutoSaving(true);
+      
+      // Get existing employee_details record first
+      const { data: existingData } = await (supabase as any)
+        .from("employee_details")
+        .select("*")
+        .eq("employee_id", employeeId)
+        .maybeSingle();
+
+      const payload: any = {
+        employee_id: employeeId,
+        company_id: company.id,
+        created_by: user?.id || null,
+        custom_salary_components: completeComponents.length > 0 ? completeComponents : [],
+      };
+
+      // If employee_details record exists, update it; otherwise create new one
+      const { error } = await (supabase as any)
+        .from("employee_details")
+        .upsert(payload, { onConflict: "employee_id" });
+
+      if (error) {
+        console.error("Auto-save failed:", error);
+        // Don't show error toast for auto-save failures
+      } else {
+        // Clear the highlight after successful save
+        if (lastAddedComponentId) {
+          setTimeout(() => setLastAddedComponentId(null), 2000);
+        }
+      }
+    } catch (error) {
+      console.error("Auto-save failed:", error);
+    } finally {
+      setIsAutoSaving(false);
+    }
+  };
+
+  // Auto-save when component data changes and is complete (debounced)
+  useEffect(() => {
+    if (customSalaryComponents.length > 0) {
+      const hasCompleteComponents = customSalaryComponents.some(
+        (comp) => comp.label.trim() && comp.monthly > 0
+      );
+      
+      if (hasCompleteComponents) {
+        // Debounce auto-save - wait 1.5 seconds after last change
+        const timeoutId = setTimeout(() => {
+          autoSaveCustomComponents();
+        }, 1500);
+        
+        return () => clearTimeout(timeoutId);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customSalaryComponents]);
 
   useEffect(() => {
     const loadEmployeeDetails = async () => {
@@ -282,6 +471,14 @@ const PayrollEmployeeDetails = () => {
         specialAllowance: Number(data.special_allowance_monthly || 0),
       });
       setAnnualCtcDraft(String(loadedAnnualCtc));
+      setEmployeeDetailsData(data); // Store the full employee_details data
+      
+      // Load custom salary components if they exist
+      if (data.custom_salary_components && Array.isArray(data.custom_salary_components)) {
+        setCustomSalaryComponents(data.custom_salary_components);
+      } else {
+        setCustomSalaryComponents([]);
+      }
     };
 
     loadEmployeeDetails();
@@ -512,6 +709,7 @@ const PayrollEmployeeDetails = () => {
         special_allowance_monthly: salaryDetails.specialAllowance,
         total_monthly_ctc: totalMonthlyCtc,
         total_annual_ctc: totalAnnualCtc,
+        custom_salary_components: customSalaryComponents.length > 0 ? customSalaryComponents : null,
       };
 
       const { error } = await (supabase as any)
@@ -871,7 +1069,29 @@ const PayrollEmployeeDetails = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Salary Structure</CardTitle>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CardTitle>Salary Structure</CardTitle>
+                  {isAutoSaving && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Saving...
+                    </span>
+                  )}
+                </div>
+                {canEditSalaryComponents && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddCustomComponent}
+                    className="gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Others
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -883,41 +1103,197 @@ const PayrollEmployeeDetails = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {salaryRows.map((row) => (
-                    <TableRow key={row.key}>
+                  {allSalaryRows.map((row) => (
+                    <TableRow 
+                      key={row.key}
+                      ref={(el) => {
+                        if ((row as any).isCustom) {
+                          componentRowRefs.current[row.key] = el;
+                        }
+                      }}
+                      className={lastAddedComponentId === row.key ? "bg-muted/50" : ""}
+                    >
                       <TableCell>
-                        <p className="font-medium">{row.label}</p>
-                        <p className="text-xs text-muted-foreground">{row.description}</p>
+                        <div className="flex items-center gap-2">
+                          {(row as any).isCustom && canEditSalaryComponents && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                              onClick={() => handleRemoveCustomComponent(row.key)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                          <div className="flex-1">
+                            {(row as any).isCustom && canEditSalaryComponents ? (
+                              // Custom component label: show input if editing or empty, otherwise show text
+                              editingComponentId === row.key && editingField === "label" ? (
+                                <>
+                                  <Input
+                                    type="text"
+                                    className="w-48 font-medium mb-1"
+                                    placeholder="Component name"
+                                    value={row.label}
+                                    onChange={(e) => handleUpdateCustomComponent(row.key, "label", e.target.value)}
+                                    onBlur={() => {
+                                      setEditingComponentId(null);
+                                      setEditingField(null);
+                                      // Auto-save when user clicks away after entering data
+                                      autoSaveCustomComponents();
+                                    }}
+                                    autoFocus={lastAddedComponentId === row.key}
+                                  />
+                                  <p className="text-xs text-muted-foreground">{row.description}</p>
+                                </>
+                              ) : (
+                                <>
+                                  <p 
+                                    className="font-medium cursor-pointer hover:bg-muted/50 px-2 py-1 rounded inline-block"
+                                    onClick={() => {
+                                      if (canEditSalaryComponents) {
+                                        setEditingComponentId(row.key);
+                                        setEditingField("label");
+                                      }
+                                    }}
+                                  >
+                                    {row.label || "Component name"}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">{row.description}</p>
+                                </>
+                              )
+                            ) : (
+                              <>
+                                <p className="font-medium">{row.label}</p>
+                                <p className="text-xs text-muted-foreground">{row.description}</p>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        {row.editable && row.field ? (
-                          <div className="flex justify-end">
-                            <Input
-                              type="number"
-                              min="0"
-                              className="w-36 text-right"
-                              value={row.monthly}
-                              disabled={!canEditSalaryComponents}
-                              onChange={(event) => {
-                                if (!canEditSalaryComponents) return;
-                                const newValue = parseCurrencyInput(event.target.value);
-                                setSalaryDetails((prev) => ({ ...prev, [row.field]: newValue }));
+                        {row.editable && (row as any).isCustom ? (
+                          // Custom component: show formatted currency if saved, input if editing
+                          editingComponentId === row.key && editingField === "monthly" ? (
+                            <div className="flex justify-end">
+                              <Input
+                                type="number"
+                                min="0"
+                                className="w-36 text-right"
+                                value={row.monthly}
+                                disabled={!canEditSalaryComponents}
+                                onChange={(event) => {
+                                  if (!canEditSalaryComponents) return;
+                                  const newValue = parseCurrencyInput(event.target.value);
+                                  handleUpdateCustomComponent(row.key, "monthly", newValue);
+                                }}
+                                onBlur={() => {
+                                  setEditingComponentId(null);
+                                  setEditingField(null);
+                                  // Auto-save when user clicks away after entering data
+                                  autoSaveCustomComponents();
+                                }}
+                                autoFocus
+                              />
+                            </div>
+                          ) : row.monthly > 0 ? (
+                            // Show formatted currency with rupee symbol when saved
+                            <span 
+                              className="font-medium cursor-pointer hover:bg-muted/50 px-2 py-1 rounded"
+                              onClick={() => {
+                                if (canEditSalaryComponents) {
+                                  setEditingComponentId(row.key);
+                                  setEditingField("monthly");
+                                }
                               }}
-                            />
-                          </div>
+                            >
+                              {formatCurrency(row.monthly, currency)}
+                            </span>
+                          ) : (
+                            // Show input if not saved yet
+                            <div className="flex justify-end">
+                              <Input
+                                type="number"
+                                min="0"
+                                className="w-36 text-right"
+                                value={row.monthly}
+                                disabled={!canEditSalaryComponents}
+                                onChange={(event) => {
+                                  if (!canEditSalaryComponents) return;
+                                  const newValue = parseCurrencyInput(event.target.value);
+                                  handleUpdateCustomComponent(row.key, "monthly", newValue);
+                                }}
+                                onBlur={() => {
+                                  // Auto-save when user clicks away after entering data
+                                  autoSaveCustomComponents();
+                                }}
+                              />
+                            </div>
+                          )
+                        ) : row.editable && row.field ? (
+                          // Regular editable component: show formatted currency with rupee symbol when saved, input if editing
+                          editingComponentId === row.key && editingField === "monthly" ? (
+                            <div className="flex justify-end">
+                              <Input
+                                type="number"
+                                min="0"
+                                className="w-36 text-right"
+                                value={row.monthly}
+                                disabled={!canEditSalaryComponents}
+                                onChange={(event) => {
+                                  if (!canEditSalaryComponents) return;
+                                  const newValue = parseCurrencyInput(event.target.value);
+                                  setSalaryDetails((prev) => ({ ...prev, [row.field]: newValue }));
+                                }}
+                                onBlur={() => {
+                                  setEditingComponentId(null);
+                                  setEditingField(null);
+                                }}
+                                autoFocus
+                              />
+                            </div>
+                          ) : (
+                            <span 
+                              className="font-medium cursor-pointer hover:bg-muted/50 px-2 py-1 rounded"
+                              onClick={() => {
+                                if (canEditSalaryComponents) {
+                                  setEditingComponentId(row.key);
+                                  setEditingField("monthly");
+                                }
+                              }}
+                            >
+                              {formatCurrency(row.monthly, currency)}
+                            </span>
+                          )
+                        ) : (row as any).isDeduction ? (
+                          <span className="font-medium text-destructive">-{formatCurrency(row.monthly, currency)}</span>
                         ) : (
                           <span className="font-medium">{formatCurrency(row.monthly, currency)}</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-medium">{formatCurrency(row.annual, currency)}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {(row as any).isDeduction ? (
+                          <span className="text-destructive">-{formatCurrency(row.annual, currency)}</span>
+                        ) : (
+                          formatCurrency(row.annual, currency)
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                   <TableRow>
                     <TableCell>
                       <p className="text-lg font-semibold">Cost to Company</p>
                     </TableCell>
-                    <TableCell className="text-right text-lg font-semibold">{formatCurrency(monthlyCtc, currency)}</TableCell>
+                    <TableCell className="text-right text-lg font-semibold">{formatCurrency(totalMonthlyCtc, currency)}</TableCell>
                     <TableCell className="text-right text-lg font-semibold">{formatCurrency(totalAnnualCtc, currency)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>
+                      <p className="text-lg font-semibold">Net Pay (After Deductions)</p>
+                    </TableCell>
+                    <TableCell className="text-right text-lg font-semibold">{formatCurrency(netPayMonthly, currency)}</TableCell>
+                    <TableCell className="text-right text-lg font-semibold">{formatCurrency(netPayAnnual, currency)}</TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
@@ -966,46 +1342,49 @@ const PayrollEmployeeDetails = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    employeePayslips.map((payslip) => (
-                      <TableRow key={payslip.id}>
-                        <TableCell>{format(new Date(payslip.period_start), "MMMM yyyy")}</TableCell>
-                        <TableCell>{formatCurrency(Number(payslip.basic_salary || 0), currency)}</TableCell>
-                        <TableCell className="text-success">+{formatCurrency(Number(payslip.allowances || 0), currency)}</TableCell>
-                        <TableCell className="text-destructive">-{formatCurrency(Number(payslip.deductions || 0), currency)}</TableCell>
-                        <TableCell className="font-semibold">{formatCurrency(Number(payslip.net_pay || 0), currency)}</TableCell>
-                        <TableCell>
-                          <Badge variant={payslip.status === "paid" ? "success" : "warning"}>
-                            {statusLabel[payslip.status || "pending"]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {payslip.pay_date ? format(new Date(payslip.pay_date), "MMM d, yyyy") : "N/A"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleViewPayslip(payslip)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDownloadPDF(payslip)}
-                              disabled={downloadingId === payslip.id}
-                            >
-                              {downloadingId === payslip.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Download className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    employeePayslips.map((payslip) => {
+                      const calculatedValues = calculatePayslipValues(payslip);
+                      return (
+                        <TableRow key={payslip.id}>
+                          <TableCell>{format(new Date(payslip.period_start), "MMMM yyyy")}</TableCell>
+                          <TableCell>{formatCurrency(calculatedValues.basic, currency)}</TableCell>
+                          <TableCell className="text-success">+{formatCurrency(calculatedValues.allowances, currency)}</TableCell>
+                          <TableCell className="text-destructive">-{formatCurrency(calculatedValues.deductions, currency)}</TableCell>
+                          <TableCell className="font-semibold">{formatCurrency(calculatedValues.netPay, currency)}</TableCell>
+                          <TableCell>
+                            <Badge variant={payslip.status === "paid" ? "success" : "warning"}>
+                              {statusLabel[payslip.status || "pending"]}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {payslip.pay_date ? format(new Date(payslip.pay_date), "MMM d, yyyy") : "N/A"}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleViewPayslip(payslip)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDownloadPDF(payslip)}
+                                disabled={downloadingId === payslip.id}
+                              >
+                                {downloadingId === payslip.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Download className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
