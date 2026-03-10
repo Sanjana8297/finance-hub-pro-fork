@@ -35,6 +35,12 @@ interface PayslipDeductionsYTD {
   professionalTax: number;
 }
 
+interface PayslipComponent {
+  label: string;
+  amount: number;
+  ytd: number;
+}
+
 interface Payslip {
   id: string;
   employee: {
@@ -53,6 +59,8 @@ interface Payslip {
   earningsYTD: PayslipEarningsYTD;
   deductions: PayslipDeductions;
   deductionsYTD: PayslipDeductionsYTD;
+  customEarnings?: PayslipComponent[];
+  customDeductions?: PayslipComponent[];
   grossEarnings: number;
   totalDeductions: number;
   netPay: number;
@@ -293,6 +301,23 @@ const PayslipPDFDocument = ({
       maximumFractionDigits: 2,
     }).format(amount);
   };
+  const customEarnings = payslip.customEarnings || [];
+  const customDeductions = payslip.customDeductions || [];
+  const fixedEarningRows: PayslipComponent[] = [
+    { label: "Basic", amount: payslip.earnings.basic, ytd: payslip.earningsYTD.basic },
+    { label: "House Rent Allowance", amount: payslip.earnings.houseRentAllowance, ytd: payslip.earningsYTD.houseRentAllowance },
+    { label: "Conveyance Allowance", amount: payslip.earnings.conveyanceAllowance, ytd: payslip.earningsYTD.conveyanceAllowance },
+    { label: "Medical Reimbursement", amount: payslip.earnings.medicalReimbursement, ytd: payslip.earningsYTD.medicalReimbursement },
+    { label: "Other Benefit", amount: payslip.earnings.otherBenefit, ytd: payslip.earningsYTD.otherBenefit },
+    { label: "Special Allowance", amount: payslip.earnings.specialAllowance, ytd: payslip.earningsYTD.specialAllowance },
+  ];
+  const allDeductions: PayslipComponent[] = [
+    { label: "Professional Tax", amount: payslip.deductions.professionalTax, ytd: payslip.deductionsYTD.professionalTax },
+    ...customDeductions,
+  ];
+  const extraCustomEarnings = customEarnings;
+  const extraCustomDeductions = allDeductions.slice(fixedEarningRows.length);
+  const customRowCount = Math.max(extraCustomEarnings.length, extraCustomDeductions.length);
 
   return (
     <Document>
@@ -301,10 +326,10 @@ const PayslipPDFDocument = ({
         <View style={styles.header}>
           <View style={styles.companyInfo}>
             <Text style={styles.companyName}>
-              Techvitta Innovations Pvt Ltd
+              {companyName || "Techvitta Innovations Pvt Ltd"}
             </Text>
             <Text style={styles.companyAddress}>
-              Plot No 19, Opp Cyber Pearl, Hitech City, Madhapur, Hyderabad Telangana 500081{'\n'}India
+              {companyAddress || "Plot No 19, Opp Cyber Pearl, Hitech City, Madhapur, Hyderabad Telangana 500081\nIndia"}
             </Text>
           </View>
           <View style={styles.payslipTitleContainer}>
@@ -386,93 +411,52 @@ const PayslipPDFDocument = ({
             <Text style={[styles.tableHeaderText, styles.ytdCol]}>YTD</Text>
           </View>
 
-          {/* Basic */}
-          <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.earningsCol]}>Basic</Text>
-            <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrencyNoSymbol(payslip.earnings.basic)}
-            </Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}>
-              {formatCurrencyNoSymbol(payslip.earningsYTD.basic)}
-            </Text>
-            <Text style={[styles.tableCell, styles.deductionsCol]}>Professional Tax</Text>
-            <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrencyNoSymbol(payslip.deductions.professionalTax)}
-            </Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}>
-              {formatCurrencyNoSymbol(payslip.deductionsYTD.professionalTax)}
-            </Text>
-          </View>
+          {fixedEarningRows.map((earning, index) => {
+            const deduction = allDeductions[index];
 
-          {/* House Rent Allowance */}
-          <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.earningsCol]}>House Rent Allowance</Text>
-            <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrencyNoSymbol(payslip.earnings.houseRentAllowance)}
-            </Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}>
-              {formatCurrencyNoSymbol(payslip.earningsYTD.houseRentAllowance)}
-            </Text>
-            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
-            <Text style={[styles.tableCell, styles.amountCol]}></Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
-          </View>
+            return (
+              <View style={styles.tableRow} key={`fixed-row-${index}`}>
+                <Text style={[styles.tableCell, styles.earningsCol]}>{earning.label}</Text>
+                <Text style={[styles.tableCell, styles.amountCol]}>
+                  {formatCurrencyNoSymbol(earning.amount)}
+                </Text>
+                <Text style={[styles.tableCell, styles.ytdCol]}>
+                  {formatCurrencyNoSymbol(earning.ytd)}
+                </Text>
+                <Text style={[styles.tableCell, styles.deductionsCol]}>{deduction?.label || ""}</Text>
+                <Text style={[styles.tableCell, styles.amountCol]}>
+                  {deduction ? formatCurrencyNoSymbol(deduction.amount) : ""}
+                </Text>
+                <Text style={[styles.tableCell, styles.ytdCol]}>
+                  {deduction ? formatCurrencyNoSymbol(deduction.ytd) : ""}
+                </Text>
+              </View>
+            );
+          })}
 
-          {/* Conveyance Allowance */}
-          <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.earningsCol]}>Conveyance Allowance</Text>
-            <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrencyNoSymbol(payslip.earnings.conveyanceAllowance)}
-            </Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}>
-              {formatCurrencyNoSymbol(payslip.earningsYTD.conveyanceAllowance)}
-            </Text>
-            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
-            <Text style={[styles.tableCell, styles.amountCol]}></Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
-          </View>
+          {Array.from({ length: customRowCount }).map((_, index) => {
+            const earning = extraCustomEarnings[index];
+            const deduction = extraCustomDeductions[index];
 
-          {/* Medical Reimbursement */}
-          <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.earningsCol]}>Medical Reimbursement</Text>
-            <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrencyNoSymbol(payslip.earnings.medicalReimbursement)}
-            </Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}>
-              {formatCurrencyNoSymbol(payslip.earningsYTD.medicalReimbursement)}
-            </Text>
-            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
-            <Text style={[styles.tableCell, styles.amountCol]}></Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
-          </View>
-
-          {/* Other Benefit */}
-          <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.earningsCol]}>Other Benefit</Text>
-            <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrencyNoSymbol(payslip.earnings.otherBenefit)}
-            </Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}>
-              {formatCurrencyNoSymbol(payslip.earningsYTD.otherBenefit)}
-            </Text>
-            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
-            <Text style={[styles.tableCell, styles.amountCol]}></Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
-          </View>
-
-          {/* Special Allowance */}
-          <View style={styles.tableRow}>
-            <Text style={[styles.tableCell, styles.earningsCol]}>Special Allowance</Text>
-            <Text style={[styles.tableCell, styles.amountCol]}>
-              {formatCurrencyNoSymbol(payslip.earnings.specialAllowance)}
-            </Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}>
-              {formatCurrencyNoSymbol(payslip.earningsYTD.specialAllowance)}
-            </Text>
-            <Text style={[styles.tableCell, styles.deductionsCol]}></Text>
-            <Text style={[styles.tableCell, styles.amountCol]}></Text>
-            <Text style={[styles.tableCell, styles.ytdCol]}></Text>
-          </View>
+            return (
+              <View style={styles.tableRow} key={`custom-row-${index}`}>
+                <Text style={[styles.tableCell, styles.earningsCol]}>{earning?.label || ""}</Text>
+                <Text style={[styles.tableCell, styles.amountCol]}>
+                  {earning ? formatCurrencyNoSymbol(earning.amount) : ""}
+                </Text>
+                <Text style={[styles.tableCell, styles.ytdCol]}>
+                  {earning ? formatCurrencyNoSymbol(earning.ytd) : ""}
+                </Text>
+                <Text style={[styles.tableCell, styles.deductionsCol]}>{deduction?.label || ""}</Text>
+                <Text style={[styles.tableCell, styles.amountCol]}>
+                  {deduction ? formatCurrencyNoSymbol(deduction.amount) : ""}
+                </Text>
+                <Text style={[styles.tableCell, styles.ytdCol]}>
+                  {deduction ? formatCurrencyNoSymbol(deduction.ytd) : ""}
+                </Text>
+              </View>
+            );
+          })}
 
           {/* Totals */}
           <View style={styles.totalsRow}>
@@ -539,4 +523,4 @@ export function downloadPDF(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export type { Payslip, PayslipEarnings, PayslipEarningsYTD, PayslipDeductions, PayslipDeductionsYTD };
+export type { Payslip, PayslipComponent, PayslipEarnings, PayslipEarningsYTD, PayslipDeductions, PayslipDeductionsYTD };

@@ -16,7 +16,7 @@ import { format } from "date-fns";
 import { ArrowLeft, Download, Eye, Loader2, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { generatePayslipPDF, downloadPDF, Payslip } from "@/components/payroll/PayslipPDF";
+import { generatePayslipPDF, downloadPDF, Payslip, PayslipComponent } from "@/components/payroll/PayslipPDF";
 import { PayslipDialog } from "@/components/payroll/PayslipDialog";
 
 const statusLabel: Record<string, string> = {
@@ -87,6 +87,20 @@ const PayrollEmployeeDetails = () => {
   const employee = latestPayslip?.employees;
   const currency = company?.currency || "INR";
 
+  const getCustomComponents = (details: any): Array<{ id: string; label: string; monthly: number }> => {
+    if (!details?.custom_salary_components || !Array.isArray(details.custom_salary_components)) return [];
+
+    return details.custom_salary_components
+      .map((component: any) => ({
+        id: String(component?.id || `custom-${Date.now()}`),
+        label: String(component?.label || "").trim(),
+        monthly: Number(component?.monthly || 0),
+      }))
+      .filter((component: { id: string; label: string; monthly: number }) =>
+        component.label.length > 0 && component.monthly !== 0
+      );
+  };
+
   // Calculate payslip values from employee_details for display in table
   const calculatePayslipValues = (payslipData: any) => {
     // Use employee_details if available, otherwise fallback to payslip data
@@ -123,15 +137,25 @@ const PayrollEmployeeDetails = () => {
       specialAllowanceMonthly = 0;
     }
     
+    const componentSource = employeeDetailsData || null;
+    const parsedCustomComponents = getCustomComponents(componentSource);
+    const customEarnings = parsedCustomComponents
+      .filter((component) => component.monthly > 0)
+      .reduce((sum, component) => sum + component.monthly, 0);
+    const customDeductions = parsedCustomComponents
+      .filter((component) => component.monthly < 0)
+      .reduce((sum, component) => sum + Math.abs(component.monthly), 0);
+
     const totalAllowances = houseRentMonthly + conveyanceMonthly + medicalMonthly + 
-                           otherBenefitMonthly + specialAllowanceMonthly;
+                           otherBenefitMonthly + specialAllowanceMonthly + customEarnings;
     const professionalTax = 200.00; // Common for all employees
-    const netPay = basicMonthly + totalAllowances - professionalTax;
+    const deductions = professionalTax + customDeductions;
+    const netPay = basicMonthly + totalAllowances - deductions;
     
     return {
       basic: basicMonthly,
       allowances: totalAllowances,
-      deductions: professionalTax,
+      deductions,
       netPay: netPay,
     };
   };
@@ -294,7 +318,12 @@ const PayrollEmployeeDetails = () => {
     })),
   ];
 
-  const customComponentsTotal = customSalaryComponents.reduce((sum, comp) => sum + comp.monthly, 0);
+  const customEarningsTotal = customSalaryComponents
+    .filter((component) => component.monthly > 0)
+    .reduce((sum, component) => sum + component.monthly, 0);
+  const customDeductionsTotal = customSalaryComponents
+    .filter((component) => component.monthly < 0)
+    .reduce((sum, component) => sum + Math.abs(component.monthly), 0);
   
   // CTC includes earnings only, not deductions like Professional Tax
   const totalMonthlyCtc =
@@ -304,14 +333,20 @@ const PayrollEmployeeDetails = () => {
     salaryDetails.medicalReimbursement +
     salaryDetails.otherBenefit +
     salaryDetails.specialAllowance +
-    customComponentsTotal;
+    customEarningsTotal;
   const totalAnnualCtc = salaryDetails.annualCtc;
   
-  // Net Pay = CTC - Professional Tax
-  const netPayMonthly = totalMonthlyCtc - professionalTaxMonthly;
-  const netPayAnnual = totalAnnualCtc - professionalTaxAnnual;
+  // Net Pay = CTC - deductions
+  const netPayMonthly = totalMonthlyCtc - professionalTaxMonthly - customDeductionsTotal;
+  const netPayAnnual = (totalMonthlyCtc * 12) - professionalTaxAnnual - (customDeductionsTotal * 12);
 
   const parseCurrencyInput = (value: string) => {
+    const parsed = Number(value);
+    if (Number.isNaN(parsed)) return 0;
+    return parsed;
+  };
+
+  const parseNonNegativeCurrencyInput = (value: string) => {
     const parsed = Number(value);
     if (Number.isNaN(parsed)) return 0;
     return Math.max(parsed, 0);
@@ -353,7 +388,7 @@ const PayrollEmployeeDetails = () => {
     
     // Filter out incomplete components (empty label or zero amount)
     const completeComponents = customSalaryComponents.filter(
-      (comp) => comp.label.trim() && comp.monthly > 0
+      (comp) => comp.label.trim() && comp.monthly !== 0
     );
     
     // Only save if there are complete custom components
@@ -401,7 +436,7 @@ const PayrollEmployeeDetails = () => {
   useEffect(() => {
     if (customSalaryComponents.length > 0) {
       const hasCompleteComponents = customSalaryComponents.some(
-        (comp) => comp.label.trim() && comp.monthly > 0
+        (comp) => comp.label.trim() && comp.monthly !== 0
       );
       
       if (hasCompleteComponents) {
@@ -545,6 +580,21 @@ const PayrollEmployeeDetails = () => {
     const medicalMonthly = empDetails?.medical_reimbursement_monthly || salaryDetails.medicalReimbursement || 0;
     const otherBenefitMonthly = empDetails?.other_benefit_monthly || salaryDetails.otherBenefit || 0;
     const specialAllowanceMonthly = empDetails?.special_allowance_monthly || salaryDetails.specialAllowance || 0;
+    const customComponents = getCustomComponents(empDetails);
+    const customEarningComponents: PayslipComponent[] = customComponents
+      .filter((component) => component.monthly > 0)
+      .map((component) => ({
+        label: component.label,
+        amount: component.monthly,
+        ytd: 0,
+      }));
+    const customDeductionComponents: PayslipComponent[] = customComponents
+      .filter((component) => component.monthly < 0)
+      .map((component) => ({
+        label: component.label,
+        amount: Math.abs(component.monthly),
+        ytd: 0,
+      }));
 
     // Professional Tax is common for all employees (₹200.00)
     const professionalTax = 200.00;
@@ -582,6 +632,16 @@ const PayrollEmployeeDetails = () => {
       specialAllowance: calculateYTD(specialAllowanceMonthly),
     };
 
+    const customEarningsYTD = customEarningComponents.map((component) => ({
+      ...component,
+      ytd: calculateYTD(component.amount),
+    }));
+
+    const customDeductionsYTD = customDeductionComponents.map((component) => ({
+      ...component,
+      ytd: calculateYTD(component.amount),
+    }));
+
     const deductions = {
       professionalTax: professionalTax,
     };
@@ -590,18 +650,21 @@ const PayrollEmployeeDetails = () => {
       professionalTax: calculateYTD(professionalTax),
     };
 
+    const customEarningsTotalAmount = customEarningComponents.reduce((sum, component) => sum + component.amount, 0);
+    const customDeductionsTotalAmount = customDeductionComponents.reduce((sum, component) => sum + component.amount, 0);
     const grossEarnings = basicMonthly + houseRentMonthly + conveyanceMonthly + 
-                          medicalMonthly + otherBenefitMonthly + specialAllowanceMonthly;
-    const totalDeductions = professionalTax;
+                medicalMonthly + otherBenefitMonthly + specialAllowanceMonthly + customEarningsTotalAmount;
+    const totalDeductions = professionalTax + customDeductionsTotalAmount;
     const netPay = grossEarnings - totalDeductions;
+    const employeeRecord = employee as any;
 
     return {
       id: payslipData.id,
       employee: {
         name: empDetails?.name || employee?.full_name || "",
         position: empDetails?.designation || employee?.position || "",
-        employeeId: employee?.employee_number || undefined,
-        dateOfJoining: empDetails?.date_of_joining || basicInformation.dateOfJoining || employee?.hire_date || undefined,
+        employeeId: employeeRecord?.employee_number || undefined,
+        dateOfJoining: empDetails?.date_of_joining || basicInformation.dateOfJoining || employeeRecord?.hire_date || undefined,
         bankAccountNo: empDetails?.account_number || paymentInformation.accountNumber || undefined,
         avatar: employee?.email || employee?.full_name || "employee",
       },
@@ -613,6 +676,8 @@ const PayrollEmployeeDetails = () => {
       earningsYTD,
       deductions,
       deductionsYTD,
+      customEarnings: customEarningsYTD,
+      customDeductions: customDeductionsYTD,
       grossEarnings,
       totalDeductions,
       netPay,
@@ -1038,7 +1103,7 @@ const PayrollEmployeeDetails = () => {
                     <Button
                       type="button"
                       onClick={() => {
-                        const newAnnualCtc = parseCurrencyInput(annualCtcDraft);
+                        const newAnnualCtc = parseNonNegativeCurrencyInput(annualCtcDraft);
                         setSalaryDetails((prev) => ({ ...prev, annualCtc: newAnnualCtc }));
                         setAnnualCtcDraft(String(newAnnualCtc));
                         setIsRevisingAnnualCtc(false);
@@ -1179,7 +1244,6 @@ const PayrollEmployeeDetails = () => {
                             <div className="flex justify-end">
                               <Input
                                 type="number"
-                                min="0"
                                 className="w-36 text-right"
                                 value={row.monthly}
                                 disabled={!canEditSalaryComponents}
@@ -1197,10 +1261,10 @@ const PayrollEmployeeDetails = () => {
                                 autoFocus
                               />
                             </div>
-                          ) : row.monthly > 0 ? (
+                          ) : row.monthly !== 0 ? (
                             // Show formatted currency with rupee symbol when saved
                             <span 
-                              className="font-medium cursor-pointer hover:bg-muted/50 px-2 py-1 rounded"
+                              className={`font-medium cursor-pointer hover:bg-muted/50 px-2 py-1 rounded ${row.monthly < 0 ? "text-destructive" : ""}`}
                               onClick={() => {
                                 if (canEditSalaryComponents) {
                                   setEditingComponentId(row.key);
@@ -1208,14 +1272,15 @@ const PayrollEmployeeDetails = () => {
                                 }
                               }}
                             >
-                              {formatCurrency(row.monthly, currency)}
+                              {row.monthly < 0
+                                ? `-${formatCurrency(Math.abs(row.monthly), currency)}`
+                                : formatCurrency(row.monthly, currency)}
                             </span>
                           ) : (
                             // Show input if not saved yet
                             <div className="flex justify-end">
                               <Input
                                 type="number"
-                                min="0"
                                 className="w-36 text-right"
                                 value={row.monthly}
                                 disabled={!canEditSalaryComponents}
@@ -1231,7 +1296,7 @@ const PayrollEmployeeDetails = () => {
                               />
                             </div>
                           )
-                        ) : row.editable && row.field ? (
+                        ) : row.editable && (row as any).field ? (
                           // Regular editable component: show formatted currency with rupee symbol when saved, input if editing
                           editingComponentId === row.key && editingField === "monthly" ? (
                             <div className="flex justify-end">
@@ -1244,7 +1309,7 @@ const PayrollEmployeeDetails = () => {
                                 onChange={(event) => {
                                   if (!canEditSalaryComponents) return;
                                   const newValue = parseCurrencyInput(event.target.value);
-                                  setSalaryDetails((prev) => ({ ...prev, [row.field]: newValue }));
+                                  setSalaryDetails((prev) => ({ ...prev, [(row as any).field]: newValue }));
                                 }}
                                 onBlur={() => {
                                   setEditingComponentId(null);
@@ -1273,8 +1338,8 @@ const PayrollEmployeeDetails = () => {
                         )}
                       </TableCell>
                       <TableCell className="text-right font-medium">
-                        {(row as any).isDeduction ? (
-                          <span className="text-destructive">-{formatCurrency(row.annual, currency)}</span>
+                        {(row as any).isDeduction || row.monthly < 0 ? (
+                          <span className="text-destructive">-{formatCurrency(Math.abs(row.annual), currency)}</span>
                         ) : (
                           formatCurrency(row.annual, currency)
                         )}

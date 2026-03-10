@@ -160,11 +160,31 @@ export function PayslipDialog({
   };
 
   const earnings = calculateEarningsFromEmployeeDetails();
+
+  const customComponents = Array.isArray(employeeDetails?.custom_salary_components)
+    ? employeeDetails.custom_salary_components
+        .map((component: any) => ({
+          label: String(component?.label || "").trim(),
+          monthly: Number(component?.monthly || 0),
+        }))
+        .filter((component: { label: string; monthly: number }) => component.label.length > 0 && component.monthly !== 0)
+    : [];
+  const customEarnings = customComponents.filter((component: { label: string; monthly: number }) => component.monthly > 0);
+  const customDeductions = customComponents.filter((component: { label: string; monthly: number }) => component.monthly < 0);
   
   // Professional Tax is common for all employees (₹200.00)
   const professionalTax = 200.00;
-  const totalDeductions = professionalTax;
-  const netPay = earnings.grossEarnings - totalDeductions;
+  const totalCustomEarnings = customEarnings.reduce(
+    (sum: number, component: { label: string; monthly: number }) => sum + component.monthly,
+    0
+  );
+  const totalCustomDeductions = customDeductions.reduce(
+    (sum: number, component: { label: string; monthly: number }) => sum + Math.abs(component.monthly),
+    0
+  );
+  const grossEarnings = earnings.grossEarnings + totalCustomEarnings;
+  const totalDeductions = professionalTax + totalCustomDeductions;
+  const netPay = grossEarnings - totalDeductions;
 
   // Calculate YTD values as annual values (monthly * 12)
   const earningsYTD = {
@@ -176,9 +196,46 @@ export function PayslipDialog({
     specialAllowance: earnings.specialAllowance * 12,
   };
 
+  const customEarningsYTD = customEarnings.map((component: { label: string; monthly: number }) => ({
+    label: component.label,
+    monthly: component.monthly,
+    ytd: component.monthly * 12,
+  }));
+
+  const customDeductionsYTD = customDeductions.map((component: { label: string; monthly: number }) => ({
+    label: component.label,
+    monthly: Math.abs(component.monthly),
+    ytd: Math.abs(component.monthly) * 12,
+  }));
+
   const deductionsYTD = {
     professionalTax: professionalTax * 12,
   };
+
+  const earningRows = [
+    { label: "Basic", amount: earnings.basic, ytd: earningsYTD.basic },
+    { label: "House Rent Allowance", amount: earnings.houseRentAllowance, ytd: earningsYTD.houseRentAllowance },
+    { label: "Conveyance Allowance", amount: earnings.conveyanceAllowance, ytd: earningsYTD.conveyanceAllowance },
+    { label: "Medical Reimbursement", amount: earnings.medicalReimbursement, ytd: earningsYTD.medicalReimbursement },
+    { label: "Other Benefit", amount: earnings.otherBenefit, ytd: earningsYTD.otherBenefit },
+    { label: "Special Allowance", amount: earnings.specialAllowance, ytd: earningsYTD.specialAllowance },
+    ...customEarningsYTD.map((component: { label: string; monthly: number; ytd: number }) => ({
+      label: component.label,
+      amount: component.monthly,
+      ytd: component.ytd,
+    })),
+  ];
+
+  const deductionRows = [
+    { label: "Professional Tax", amount: professionalTax, ytd: deductionsYTD.professionalTax },
+    ...customDeductionsYTD.map((component: { label: string; monthly: number; ytd: number }) => ({
+      label: component.label,
+      amount: component.monthly,
+      ytd: component.ytd,
+    })),
+  ];
+
+  const rowCount = Math.max(earningRows.length, deductionRows.length);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -301,70 +358,26 @@ export function PayslipDialog({
               </div>
             </div>
             <div className="divide-y">
-              {/* Basic */}
-              <div className="grid grid-cols-6 gap-2 p-4 w-full">
-                <div className="col-span-1">Basic</div>
-                <div className="text-right">{formatCurrency(earnings.basic, "INR")}</div>
-                <div className="text-right">{formatCurrency(earningsYTD.basic, "INR")}</div>
-                <div className="col-span-1">Professional Tax</div>
-                <div className="text-right">{formatCurrency(professionalTax, "INR")}</div>
-                <div className="text-right">{formatCurrency(deductionsYTD.professionalTax, "INR")}</div>
-              </div>
+              {Array.from({ length: rowCount }).map((_, index) => {
+                const earning = earningRows[index];
+                const deduction = deductionRows[index];
 
-              {/* House Rent Allowance */}
-              <div className="grid grid-cols-6 gap-2 p-4 w-full">
-                <div className="col-span-1">House Rent Allowance</div>
-                <div className="text-right">{formatCurrency(earnings.houseRentAllowance, "INR")}</div>
-                <div className="text-right">{formatCurrency(earningsYTD.houseRentAllowance, "INR")}</div>
-                <div className="col-span-1"></div>
-                <div></div>
-                <div></div>
-              </div>
-
-              {/* Conveyance Allowance */}
-              <div className="grid grid-cols-6 gap-2 p-4 w-full">
-                <div className="col-span-1">Conveyance Allowance</div>
-                <div className="text-right">{formatCurrency(earnings.conveyanceAllowance, "INR")}</div>
-                <div className="text-right">{formatCurrency(earningsYTD.conveyanceAllowance, "INR")}</div>
-                <div className="col-span-1"></div>
-                <div></div>
-                <div></div>
-              </div>
-
-              {/* Medical Reimbursement */}
-              <div className="grid grid-cols-6 gap-2 p-4 w-full">
-                <div className="col-span-1">Medical Reimbursement</div>
-                <div className="text-right">{formatCurrency(earnings.medicalReimbursement, "INR")}</div>
-                <div className="text-right">{formatCurrency(earningsYTD.medicalReimbursement, "INR")}</div>
-                <div className="col-span-1"></div>
-                <div></div>
-                <div></div>
-              </div>
-
-              {/* Other Benefit */}
-              <div className="grid grid-cols-6 gap-2 p-4 w-full">
-                <div className="col-span-1">Other Benefit</div>
-                <div className="text-right">{formatCurrency(earnings.otherBenefit, "INR")}</div>
-                <div className="text-right">{formatCurrency(earningsYTD.otherBenefit, "INR")}</div>
-                <div className="col-span-1"></div>
-                <div></div>
-                <div></div>
-              </div>
-
-              {/* Special Allowance */}
-              <div className="grid grid-cols-6 gap-2 p-4 w-full">
-                <div className="col-span-1">Special Allowance</div>
-                <div className="text-right">{formatCurrency(earnings.specialAllowance, "INR")}</div>
-                <div className="text-right">{formatCurrency(earningsYTD.specialAllowance, "INR")}</div>
-                <div className="col-span-1"></div>
-                <div></div>
-                <div></div>
-              </div>
+                return (
+                  <div key={`payslip-row-${index}`} className="grid grid-cols-6 gap-2 p-4 w-full">
+                    <div className="col-span-1">{earning?.label || ""}</div>
+                    <div className="text-right">{earning ? formatCurrency(earning.amount, "INR") : ""}</div>
+                    <div className="text-right">{earning ? formatCurrency(earning.ytd, "INR") : ""}</div>
+                    <div className="col-span-1">{deduction?.label || ""}</div>
+                    <div className="text-right">{deduction ? formatCurrency(deduction.amount, "INR") : ""}</div>
+                    <div className="text-right">{deduction ? formatCurrency(deduction.ytd, "INR") : ""}</div>
+                  </div>
+                );
+              })}
 
               {/* Totals */}
               <div className="grid grid-cols-6 gap-2 p-4 bg-muted font-semibold w-full">
                 <div className="col-span-1">Gross Earnings</div>
-                <div className="text-right">{formatCurrency(earnings.grossEarnings, "INR")}</div>
+                <div className="text-right">{formatCurrency(grossEarnings, "INR")}</div>
                 <div></div>
                 <div className="col-span-1">Total Deductions</div>
                 <div className="text-right">{formatCurrency(totalDeductions, "INR")}</div>
