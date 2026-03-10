@@ -63,6 +63,7 @@ import {
 import { useExpenses } from "@/hooks/useExpenses";
 import { useReceipts } from "@/hooks/useReceipts";
 import { useCategories, useCreateCategory, useDeleteCategory } from "@/hooks/useCategories";
+import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import {
   Select,
@@ -94,6 +95,59 @@ const Transactions = () => {
   const { data: transactionsRaw, isLoading: transactionsLoading } = useBankStatementTransactions(selectedStatementId) as unknown as { data?: BankStatementTransaction[]; isLoading: boolean };
   const transactions = transactionsRaw ?? [];
   const { data: company } = useCompany();
+  const { data: allTransactionsRaw, isLoading: allTransactionsLoading } = useQuery({
+    queryKey: ["bank-statement-transactions-all", company?.id, statements.map((s) => s.id).join(",")],
+    queryFn: async () => {
+      if (!company?.id || statements.length === 0) return [];
+
+      const statementIds = statements.map((statement) => statement.id);
+      const { data, error } = await supabase
+        .from("bank_statement_transactions")
+        .select("*")
+        .in("statement_id", statementIds);
+
+      if (error) throw error;
+      return (data || []) as BankStatementTransaction[];
+    },
+    enabled: !!company?.id && statements.length > 0,
+  });
+  const allTransactions = allTransactionsRaw ?? [];
+  const interStatementDedupedTransactions = useMemo(() => {
+    if (!allTransactions || allTransactions.length === 0) return [];
+
+    const normalizeText = (value: unknown) =>
+      String(value ?? "")
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+    const normalizeAmount = (value: number | null | undefined) => Number(value || 0).toFixed(2);
+
+    const uniqueTransactions = new Map<string, BankStatementTransaction>();
+
+    allTransactions.forEach((txn: any) => {
+      const metadataTransactionDate = txn?.metadata?.original_data?.["Transaction Date"] || "";
+      const metadataValueDate = txn?.metadata?.original_data?.["Value Date"] || "";
+
+      const dedupeKey = [
+        normalizeText(metadataTransactionDate || txn.transaction_date || ""),
+        normalizeText(metadataValueDate || txn.value_date || ""),
+        normalizeText(txn.description || ""),
+        normalizeAmount(txn.debit_amount),
+        normalizeAmount(txn.credit_amount),
+        normalizeText(txn.transaction_type || ""),
+      ].join("|");
+
+      if (!uniqueTransactions.has(dedupeKey)) {
+        uniqueTransactions.set(dedupeKey, txn as BankStatementTransaction);
+      }
+    });
+
+    return Array.from(uniqueTransactions.values());
+  }, [allTransactions]);
+
+  const activeTransactions = selectedStatementId ? transactions : interStatementDedupedTransactions;
   const { user, hasRole } = useAuth();
   const updateTransaction = useUpdateBankStatementTransaction();
   const { data: expenses } = useExpenses();
@@ -124,6 +178,7 @@ const Transactions = () => {
   const [filterTransactionType, setFilterTransactionType] = useState<string>(""); // "debit", "credit", or ""
   const [filterStartDate, setFilterStartDate] = useState<string>("");
   const [filterEndDate, setFilterEndDate] = useState<string>("");
+  const [transactionsViewMode, setTransactionsViewMode] = useState<"all" | "statement">("all");
 
   // Handle file upload for proof
   const handleProofFileUpload = async (transactionId: string, file: File) => {
@@ -557,10 +612,10 @@ const Transactions = () => {
 
   // Extract unique mode of payment values from transactions
   const uniqueModeOfPayments = useMemo(() => {
-    if (!transactions || transactions.length === 0) return [];
+    if (!activeTransactions || activeTransactions.length === 0) return [];
     
     const modes = new Set<string>();
-    transactions.forEach((txn: any) => {
+    activeTransactions.forEach((txn: any) => {
       if (txn.description) {
         const mode = extractModeOfPayment(txn.description);
         // Only add non-empty, non-default values, and exclude "End of the Statement"
@@ -572,7 +627,7 @@ const Transactions = () => {
     
     // Convert to array and sort alphabetically
     return Array.from(modes).sort();
-  }, [transactions]);
+  }, [activeTransactions]);
 
   // Extract description from transaction (text after first "/")
   const extractDescription = (description: string | null) => {
@@ -629,6 +684,15 @@ const Transactions = () => {
     return dateStr || null;
   };
 
+  const getDisplayTransactionDate = (txn: any) => {
+    return getTransactionDateFromMetadataOriginal(txn.metadata) ||
+      (txn.transaction_date ? format(new Date(txn.transaction_date), "dd-MMM-yyyy") : "—");
+  };
+
+  const getDisplayValueDate = (txn: any) => {
+    return getValueDateFromMetadataOriginal(txn.metadata) || "—";
+  };
+
   // Extract transaction date from metadata and convert to YYYY-MM-DD format
   const getTransactionDateFromMetadata = (metadata: any): string | null => {
     if (!metadata) return null;
@@ -676,9 +740,9 @@ const Transactions = () => {
   
   // Sort transactions by metadata.transaction_date in descending order (newest first)
   const sortedTransactions = useMemo(() => {
-    if (!transactions || transactions.length === 0) return [];
+    if (!activeTransactions || activeTransactions.length === 0) return [];
     
-    return [...transactions].sort((a: any, b: any) => {
+    return [...activeTransactions].sort((a: any, b: any) => {
       // Get transaction date from metadata, fallback to transaction_date column
       const dateA = getTransactionDateFromMetadata(a.metadata) || a.transaction_date;
       const dateB = getTransactionDateFromMetadata(b.metadata) || b.transaction_date;
@@ -690,7 +754,7 @@ const Transactions = () => {
       // Sort in descending order (newest first)
       return dateBValue - dateAValue;
     });
-  }, [transactions]);
+  }, [activeTransactions]);
   
   // Helper to log transaction dates for debugging
   const logTransactionDates = (txn: any, index: number) => {
@@ -866,10 +930,10 @@ const Transactions = () => {
 
   // Initialize proof values and notes from transactions when they load
   useEffect(() => {
-    if (transactions && transactions.length > 0) {
+    if (activeTransactions && activeTransactions.length > 0) {
       const initialProofs: Record<string, string> = {};
       const initialNotes: Record<string, string> = {};
-      transactions.forEach((txn: any) => {
+      activeTransactions.forEach((txn: any) => {
         // Read from proof column directly
         initialProofs[txn.id] = txn.proof || "";
         // Read from notes column
@@ -883,9 +947,144 @@ const Transactions = () => {
         ...prev,
         ...initialNotes
       }));
-      console.log('Initialized proof and notes values for', transactions.length, 'transactions');
+      console.log('Initialized proof and notes values for', activeTransactions.length, 'transactions');
     }
-  }, [transactions]);
+  }, [activeTransactions]);
+
+  const filteredAllTransactions = useMemo(() => {
+    let filtered = [...sortedTransactions];
+
+    const normalizeDate = (date: string | Date | null): string | null => {
+      if (!date) return null;
+      const dateObj = typeof date === "string" ? new Date(date) : date;
+      if (!dateObj || isNaN(dateObj.getTime())) return null;
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+      const day = String(dateObj.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    if (filterCategory) {
+      filtered = filtered.filter((txn: any) => (txn.category || "") === filterCategory);
+    }
+
+    if (filterModeOfPayment) {
+      filtered = filtered.filter((txn: any) => extractModeOfPayment(txn.description) === filterModeOfPayment);
+    }
+
+    if (filterTransactionType) {
+      filtered = filtered.filter((txn: any) => (txn.transaction_type || "").toLowerCase() === filterTransactionType.toLowerCase());
+    }
+
+    if (filterStartDate || filterEndDate) {
+      const normalizedStartDate = normalizeDate(filterStartDate);
+      const normalizedEndDate = normalizeDate(filterEndDate);
+
+      filtered = filtered.filter((txn: any) => {
+        const dateToCompare = getTransactionDateFromMetadata(txn.metadata) || txn.transaction_date;
+        const normalizedTxnDate = normalizeDate(dateToCompare);
+        if (!normalizedTxnDate) return false;
+
+        const meetsStartDate = !normalizedStartDate || normalizedTxnDate >= normalizedStartDate;
+        const meetsEndDate = !normalizedEndDate || normalizedTxnDate <= normalizedEndDate;
+        return meetsStartDate && meetsEndDate;
+      });
+    }
+
+    const normalizeText = (value: unknown) =>
+      String(value || "")
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+    const seenFingerprints = new Set<string>();
+    const deduplicated = filtered.filter((txn: any) => {
+      const fingerprint = [
+        normalizeText(getDisplayTransactionDate(txn)),
+        normalizeText(getDisplayValueDate(txn)),
+        normalizeText(extractModeOfPayment(txn.description)),
+        normalizeText(extractDescription(txn.description)),
+        normalizeText(formatCurrency(txn.debit_amount)),
+        normalizeText(formatCurrency(txn.credit_amount)),
+        normalizeText(txn.transaction_type || "—"),
+      ].join("|");
+
+      if (seenFingerprints.has(fingerprint)) {
+        return false;
+      }
+
+      seenFingerprints.add(fingerprint);
+      return true;
+    });
+
+    return deduplicated;
+  }, [
+    sortedTransactions,
+    filterCategory,
+    filterModeOfPayment,
+    filterTransactionType,
+    filterStartDate,
+    filterEndDate,
+  ]);
+
+  const deduplicatedDisplayRows = useMemo(() => {
+    const normalizeText = (value: unknown) =>
+      String(value || "")
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+    const uniqueRows = new Map<string, {
+      id: string;
+      txnDate: string;
+      valueDate: string;
+      modeOfPayment: string;
+      description: string;
+      debit: string;
+      credit: string;
+      category: string;
+      type: string;
+    }>();
+
+    filteredAllTransactions.forEach((txn: any) => {
+      const txnDate = getDisplayTransactionDate(txn);
+      const valueDate = getDisplayValueDate(txn);
+      const modeOfPayment = extractModeOfPayment(txn.description);
+      const description = extractDescription(txn.description);
+      const debit = formatCurrency(txn.debit_amount);
+      const credit = formatCurrency(txn.credit_amount);
+      const category = txn.category || "—";
+      const type = txn.transaction_type || "—";
+
+      const rowKey = [
+        normalizeText(txnDate),
+        normalizeText(valueDate),
+        normalizeText(modeOfPayment),
+        normalizeText(description),
+        normalizeText(debit),
+        normalizeText(credit),
+        normalizeText(type),
+      ].join("|");
+
+      if (!uniqueRows.has(rowKey)) {
+        uniqueRows.set(rowKey, {
+          id: txn.id,
+          txnDate,
+          valueDate,
+          modeOfPayment,
+          description,
+          debit,
+          credit,
+          category,
+          type,
+        });
+      }
+    });
+
+    return Array.from(uniqueRows.values());
+  }, [filteredAllTransactions, company?.currency]);
 
   // Debug: Log when deleteConfirmOpen changes
   useEffect(() => {
@@ -1439,6 +1638,9 @@ const Transactions = () => {
                             });
                           }
                           
+                          const seenStatementRowKeys = new Set<string>();
+                          const seenRenderedStatementRowKeys = new Set<string>();
+
                           return excelData.slice(transactionStartRow)
                             .filter((row: any, rowIdx: number) => {
                             // Skip completely empty rows
@@ -1557,6 +1759,23 @@ const Transactions = () => {
 
                             return true;
                           })
+                          .filter((row: any) => {
+                            const normalizeCell = (value: unknown) =>
+                              String(value ?? "")
+                                .replace(/[\u200B-\u200D\uFEFF]/g, "")
+                                .trim()
+                                .replace(/\s+/g, " ")
+                                .toLowerCase();
+
+                            const rowKey = row.map((cell: any) => normalizeCell(cell)).join("|");
+
+                            if (seenStatementRowKeys.has(rowKey)) {
+                              return false;
+                            }
+
+                            seenStatementRowKeys.add(rowKey);
+                            return true;
+                          })
                           .map((row: any, filteredRowIdx: number) => {
                             // Get the original row index for matching
                             const originalRows = excelData.slice(transactionStartRow);
@@ -1628,6 +1847,9 @@ const Transactions = () => {
 
                           const transactionId = matchingTransaction?.id;
                           const currentProof = transactionId ? (proofValues[transactionId] || "") : "";
+                          const currentNote = transactionId
+                            ? (notesValues[transactionId] ?? matchingTransaction?.notes ?? "")
+                            : "";
                           
                           // Extract mode of payment from particulars
                           // Use transaction description if available, otherwise use Excel cell
@@ -1668,6 +1890,30 @@ const Transactions = () => {
                               totalTransactionsCount: transactions?.length || 0
                             });
                           }
+
+                          const canonicalize = (value: unknown) =>
+                            String(value ?? "")
+                              .normalize('NFKD')
+                              .replace(/[\u200B-\u200D\uFEFF]/g, "")
+                              .toLowerCase()
+                              .replace(/[^a-z0-9]/g, "");
+
+                          const renderedRowKey = [
+                            ...row.map((cell: any) => canonicalize(cell)),
+                            canonicalize(modeOfPayment),
+                            canonicalize(extractedDescription),
+                            canonicalize(matchingTransaction?.transaction_type || ""),
+                            canonicalize(formatCurrency(matchingTransaction?.debit_amount ?? rowDebit ?? null)),
+                            canonicalize(formatCurrency(matchingTransaction?.credit_amount ?? rowCredit ?? null)),
+                            canonicalize(currentProof),
+                            canonicalize(currentNote),
+                          ].join("|");
+
+                          if (seenRenderedStatementRowKeys.has(renderedRowKey)) {
+                            return null;
+                          }
+
+                          seenRenderedStatementRowKeys.add(renderedRowKey);
 
                           // Build data row with Proof inserted after Credit and Particulars replaced with Mode of Payment
                           const cells: JSX.Element[] = [];
@@ -2540,10 +2786,276 @@ const Transactions = () => {
               View and manage transaction details from bank statements
             </p>
           </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={transactionsViewMode === "all" ? "default" : "outline"}
+              onClick={() => setTransactionsViewMode("all")}
+            >
+              All Transactions
+            </Button>
+            <Button
+              variant={transactionsViewMode === "statement" ? "default" : "outline"}
+              onClick={() => setTransactionsViewMode("statement")}
+            >
+              By Statement
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Statements List */}
+      {transactionsViewMode === "all" ? (
+      <>
+      {/* Filter Section */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Filter className="h-5 w-5" />
+            Filters
+          </CardTitle>
+          <CardDescription>
+            Filter transactions by category, mode of payment, type, or date range
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            <div className="space-y-2">
+              <Label htmlFor="filter-category">Category</Label>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Select value={filterCategory || "all"} onValueChange={(value) => setFilterCategory(value === "all" ? "" : value)}>
+                    <SelectTrigger id="filter-category">
+                      <SelectValue placeholder="All categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All categories</SelectItem>
+                      {categories?.map((cat) => (
+                        <SelectItem key={cat.category_id} value={cat.category_name}>
+                          {cat.category_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {!isAuditor && (
+                  <>
+                    {selectedCategoryForDelete ? (
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const selectedCategory = categories?.find(cat => cat.category_name === selectedCategoryForDelete);
+                          if (selectedCategory) {
+                            setCategoryToDelete({ id: selectedCategory.category_id, name: selectedCategory.category_name });
+                            setCategoryDeleteDialogOpen(true);
+                          }
+                        }}
+                        title={`Delete category: ${selectedCategoryForDelete}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    ) : (
+                      <DropdownMenu open={categoryDeleteDropdownOpen} onOpenChange={setCategoryDeleteDropdownOpen}>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setCategoryDeleteDropdownOpen(true);
+                            }}
+                            title="Delete category"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setCategoryDeleteDropdownOpen(false);
+                            }}
+                            className="text-muted-foreground"
+                            disabled
+                          >
+                            Select a category to delete
+                          </DropdownMenuItem>
+                          {categories && categories.length > 0 ? (
+                            categories.map((cat) => (
+                              <DropdownMenuItem
+                                key={cat.category_id}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setSelectedCategoryForDelete(cat.category_name);
+                                  setCategoryDeleteDropdownOpen(false);
+                                }}
+                              >
+                                {cat.category_name}
+                              </DropdownMenuItem>
+                            ))
+                          ) : (
+                            <DropdownMenuItem disabled className="text-muted-foreground">
+                              No categories available
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </>
+                )}
+              </div>
+              {selectedCategoryForDelete && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>Selected: {selectedCategoryForDelete}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2"
+                    onClick={() => {
+                      setSelectedCategoryForDelete(null);
+                      setCategoryToDelete(null);
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="filter-mode">Mode of Payment</Label>
+              <Select value={filterModeOfPayment || "all"} onValueChange={(value) => setFilterModeOfPayment(value === "all" ? "" : value)}>
+                <SelectTrigger id="filter-mode">
+                  <SelectValue placeholder="All modes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All modes</SelectItem>
+                  {uniqueModeOfPayments.map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {mode}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="filter-type">Type</Label>
+              <Select value={filterTransactionType || "all"} onValueChange={(value) => setFilterTransactionType(value === "all" ? "" : value)}>
+                <SelectTrigger id="filter-type">
+                  <SelectValue placeholder="All types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="debit">Debit</SelectItem>
+                  <SelectItem value="credit">Credit</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="filter-start-date">Start Date</Label>
+              <Input
+                id="filter-start-date"
+                type="date"
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="filter-end-date">End Date</Label>
+              <Input
+                id="filter-end-date"
+                type="date"
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
+              />
+            </div>
+          </div>
+          {(filterCategory || filterModeOfPayment || filterTransactionType || filterStartDate || filterEndDate) && (
+            <div className="mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFilterCategory("");
+                  setFilterModeOfPayment("");
+                  setFilterTransactionType("");
+                  setFilterStartDate("");
+                  setFilterEndDate("");
+                }}
+              >
+                <X className="h-4 w-4 mr-2" />
+                Clear Filters
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All Statement Transactions</CardTitle>
+          <CardDescription>
+            Showing transactions from all uploaded statements
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading || allTransactionsLoading ? (
+            <div className="p-6 space-y-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-20 w-full" />
+              ))}
+            </div>
+          ) : deduplicatedDisplayRows.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Transaction Date</TableHead>
+                  <TableHead>Value Date</TableHead>
+                  <TableHead>Mode of Payment</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Debit</TableHead>
+                  <TableHead>Credit</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Type</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {deduplicatedDisplayRows.map((row) => {
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell>{row.txnDate}</TableCell>
+                      <TableCell>{row.valueDate}</TableCell>
+                      <TableCell>{row.modeOfPayment}</TableCell>
+                      <TableCell>{row.description}</TableCell>
+                      <TableCell className="text-red-600">{row.debit}</TableCell>
+                      <TableCell className="text-green-600">{row.credit}</TableCell>
+                      <TableCell>{row.category}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="capitalize">
+                          {row.type}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="p-12 text-center">
+              <FileSpreadsheet className="mx-auto h-12 w-12 text-muted-foreground/50 mb-4" />
+              <p className="text-lg font-medium">No transactions found</p>
+              <p className="text-sm text-muted-foreground">
+                Upload statements from the Statement page to view transactions
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      </>
+      ) : (
       <Card>
         <CardHeader>
           <CardTitle>Bank Statements</CardTitle>
@@ -2633,6 +3145,7 @@ const Transactions = () => {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Link Proof Dialog */}
       <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>

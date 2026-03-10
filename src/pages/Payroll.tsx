@@ -40,12 +40,10 @@ import {
   Loader2,
 } from "lucide-react";
 import { PayslipDialog } from "@/components/payroll/PayslipDialog";
-import { generatePayslipPDF, downloadPDF, Payslip, PayslipComponent } from "@/components/payroll/PayslipPDF";
+import { generatePayslipPDF, downloadPDF, Payslip } from "@/components/payroll/PayslipPDF";
 import { useToast } from "@/hooks/use-toast";
 import { useCompany } from "@/hooks/useCompany";
 import { usePayslips, usePayslipStats } from "@/hooks/usePayslips";
-import { useEmployees } from "@/hooks/useEmployees";
-import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -54,7 +52,6 @@ import { supabase } from "@/integrations/supabase/client";
 interface PayslipDisplay {
   id: string;
   employeeId: string;
-  hasGeneratedPayslip: boolean;
   employee: {
     name: string;
     position: string;
@@ -100,76 +97,7 @@ const Payroll = () => {
   const { data: company } = useCompany();
   const { data: payslipsData, isLoading } = usePayslips();
   const { data: stats } = usePayslipStats();
-  const { data: employeesData } = useEmployees();
   const currency = company?.currency || "INR";
-
-  const { data: employeeSalaryDetails = [], isLoading: isLoadingSalaryDetails } = useQuery({
-    queryKey: ["employee-details", company?.id],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("employee_details")
-        .select("*")
-        .eq("company_id", company?.id);
-
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!company?.id,
-  });
-
-  const getCustomComponents = (employeeDetails: any): Array<{ label: string; monthly: number }> => {
-    if (!employeeDetails?.custom_salary_components || !Array.isArray(employeeDetails.custom_salary_components)) {
-      return [];
-    }
-
-    return employeeDetails.custom_salary_components
-      .map((component: any) => ({
-        label: String(component?.label || "").trim(),
-        monthly: Number(component?.monthly || 0),
-      }))
-      .filter((component: { label: string; monthly: number }) => component.label.length > 0 && component.monthly !== 0);
-  };
-
-  const hasFilledSalaryData = (employeeDetails: any) => {
-    const customComponents = getCustomComponents(employeeDetails);
-    const hasCustomValues = customComponents.some((component) => component.monthly !== 0);
-
-    return (
-      Number(employeeDetails?.annual_ctc || 0) > 0 ||
-      Number(employeeDetails?.monthly_ctc || 0) > 0 ||
-      Number(employeeDetails?.basic_monthly || 0) > 0 ||
-      Number(employeeDetails?.total_monthly_ctc || 0) > 0 ||
-      hasCustomValues
-    );
-  };
-
-  const getAmountsFromEmployeeDetails = (details: any) => {
-    const basicSalary = Number(details?.basic_monthly || 0);
-    const houseRentAllowance = Number(details?.house_rent_allowance_monthly || 0);
-    const conveyanceAllowance = Number(details?.conveyance_allowance_monthly || 0);
-    const medicalReimbursement = Number(details?.medical_reimbursement_monthly || 0);
-    const otherBenefit = Number(details?.other_benefit_monthly || 0);
-    const specialAllowance = Number(details?.special_allowance_monthly || 0);
-
-    const customComponents = getCustomComponents(details);
-    const customEarnings = customComponents
-      .filter((component) => component.monthly > 0)
-      .reduce((sum, component) => sum + component.monthly, 0);
-    const customDeductions = customComponents
-      .filter((component) => component.monthly < 0)
-      .reduce((sum, component) => sum + Math.abs(component.monthly), 0);
-
-    const allowances = houseRentAllowance + conveyanceAllowance + medicalReimbursement + otherBenefit + specialAllowance + customEarnings;
-    const deductions = 200 + customDeductions;
-    const netPay = basicSalary + allowances - deductions;
-
-    return {
-      basicSalary,
-      allowances,
-      deductions,
-      netPay,
-    };
-  };
 
   // Convert PayslipDisplay to Payslip format
   const convertToPayslip = async (payslipDisplay: PayslipDisplay, payslipData: any): Promise<Payslip> => {
@@ -260,22 +188,6 @@ const Payroll = () => {
       }
     }
 
-    const customComponents = getCustomComponents(employeeDetails);
-    const customEarnings: PayslipComponent[] = customComponents
-      .filter((component) => component.monthly > 0)
-      .map((component) => ({
-        label: component.label,
-        amount: component.monthly,
-        ytd: component.monthly * ytdMultiplier,
-      }));
-    const customDeductions: PayslipComponent[] = customComponents
-      .filter((component) => component.monthly < 0)
-      .map((component) => ({
-        label: component.label,
-        amount: Math.abs(component.monthly),
-        ytd: Math.abs(component.monthly) * ytdMultiplier,
-      }));
-
     const earnings = {
       basic: basicMonthly,
       houseRentAllowance: houseRentMonthly,
@@ -302,11 +214,9 @@ const Payroll = () => {
       professionalTax: professionalTax * ytdMultiplier,
     };
 
-    const customEarningsTotal = customEarnings.reduce((sum, component) => sum + component.amount, 0);
-    const customDeductionsTotal = customDeductions.reduce((sum, component) => sum + component.amount, 0);
     const grossEarnings = basicMonthly + houseRentMonthly + conveyanceMonthly + 
-                medicalMonthly + otherBenefitMonthly + specialAllowanceMonthly + customEarningsTotal;
-    const totalDeductions = professionalTax + customDeductionsTotal;
+                          medicalMonthly + otherBenefitMonthly + specialAllowanceMonthly;
+    const totalDeductions = professionalTax;
     const netPay = grossEarnings - totalDeductions;
 
     // Fetch employee details for bank account
@@ -334,8 +244,6 @@ const Payroll = () => {
       earningsYTD,
       deductions,
       deductionsYTD,
-      customEarnings,
-      customDeductions,
       grossEarnings,
       totalDeductions,
       netPay,
@@ -344,25 +252,15 @@ const Payroll = () => {
   };
 
   // Transform database payslips to display format
-  const payslipRows: PayslipDisplay[] = (payslipsData || []).map((payslip) => {
+  const payslips: PayslipDisplay[] = (payslipsData || []).map((payslip) => {
     const employee = payslip.employees;
     const periodStart = new Date(payslip.period_start);
+    const periodEnd = new Date(payslip.period_end);
     const period = format(periodStart, "MMMM yyyy");
-    const employeeDetails = (employeeSalaryDetails || []).find((details: any) => details.employee_id === payslip.employee_id);
-    const hasSalaryDetails = hasFilledSalaryData(employeeDetails);
-    const salaryAmounts = hasSalaryDetails
-      ? getAmountsFromEmployeeDetails(employeeDetails)
-      : {
-          basicSalary: Number(payslip.basic_salary),
-          allowances: Number(payslip.allowances || 0),
-          deductions: Number(payslip.deductions || 0),
-          netPay: Number(payslip.net_pay),
-        };
     
     return {
       id: payslip.id,
       employeeId: payslip.employee_id,
-      hasGeneratedPayslip: true,
       employee: {
         name: employee?.full_name || "Unknown Employee",
         position: employee?.position || "N/A",
@@ -370,49 +268,14 @@ const Payroll = () => {
         avatar: employee?.email || employee?.full_name || "employee",
       },
       period,
-      basicSalary: salaryAmounts.basicSalary,
-      allowances: salaryAmounts.allowances,
-      deductions: salaryAmounts.deductions,
-      netPay: salaryAmounts.netPay,
+      basicSalary: Number(payslip.basic_salary),
+      allowances: Number(payslip.allowances || 0),
+      deductions: Number(payslip.deductions || 0),
+      netPay: Number(payslip.net_pay),
       status: (payslip.status as "paid" | "pending" | "processing") || "pending",
       payDate: payslip.pay_date ? format(new Date(payslip.pay_date), "MMM d, yyyy") : "N/A",
     };
   });
-
-  const currentPeriod = payslipRows.length > 0
-    ? payslipRows[0].period
-    : format(new Date(), "MMMM yyyy");
-
-  const payslipEmployeeIds = new Set(payslipRows.map((row) => row.employeeId));
-
-  const salaryOnlyRows: PayslipDisplay[] = (employeeSalaryDetails || [])
-    .filter((details: any) => details?.employee_id && hasFilledSalaryData(details))
-    .filter((details: any) => !payslipEmployeeIds.has(String(details.employee_id)))
-    .map((details: any) => {
-      const employee = (employeesData || []).find((entry) => entry.id === details.employee_id);
-      const salaryAmounts = getAmountsFromEmployeeDetails(details);
-
-      return {
-        id: `salary-${details.employee_id}`,
-        employeeId: String(details.employee_id),
-        hasGeneratedPayslip: false,
-        employee: {
-          name: details?.name || employee?.full_name || "Unknown Employee",
-          position: details?.designation || employee?.position || "N/A",
-          email: employee?.email || undefined,
-          avatar: employee?.email || employee?.full_name || details?.name || "employee",
-        },
-        period: currentPeriod,
-        basicSalary: salaryAmounts.basicSalary,
-        allowances: salaryAmounts.allowances,
-        deductions: salaryAmounts.deductions,
-        netPay: salaryAmounts.netPay,
-        status: "pending",
-        payDate: "N/A",
-      };
-    });
-
-  const payslips: PayslipDisplay[] = [...payslipRows, ...salaryOnlyRows];
 
   // Filter payslips based on search query and status filter
   const filteredPayslips = payslips.filter((payslip) => {
@@ -432,15 +295,12 @@ const Payroll = () => {
   const paidAmount = stats?.paidAmount || 0;
   const pendingAmount = stats?.pendingAmount || 0;
 
-  const handleViewPayslip = async (payslipDisplay: PayslipDisplay) => {
-    if (!payslipDisplay.hasGeneratedPayslip) {
-      toast({
-        title: "Payslip not generated",
-        description: "Salary details are available, but payslip PDF is not generated for this employee yet.",
-      });
-      return;
-    }
+  // Get current period for display (most recent payslip period or current month)
+  const currentPeriod = payslips.length > 0 
+    ? payslips[0].period 
+    : format(new Date(), "MMMM yyyy");
 
+  const handleViewPayslip = async (payslipDisplay: PayslipDisplay) => {
     const payslipData = payslipsData?.find(p => p.id === payslipDisplay.id);
     if (!payslipData) return;
     
@@ -464,14 +324,6 @@ const Payroll = () => {
   };
 
   const handleDownloadPDF = async (payslipDisplay: PayslipDisplay) => {
-    if (!payslipDisplay.hasGeneratedPayslip) {
-      toast({
-        title: "Payslip not generated",
-        description: "Generate a payslip for this employee before downloading.",
-      });
-      return;
-    }
-
     try {
       setDownloadingId(payslipDisplay.id);
       
@@ -507,14 +359,6 @@ const Payroll = () => {
   };
 
   const handlePrint = async (payslipDisplay: PayslipDisplay) => {
-    if (!payslipDisplay.hasGeneratedPayslip) {
-      toast({
-        title: "Payslip not generated",
-        description: "Generate a payslip for this employee before printing.",
-      });
-      return;
-    }
-
     try {
       setPrintingId(payslipDisplay.id);
       
@@ -674,10 +518,10 @@ const Payroll = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading || isLoadingSalaryDetails ? (
+              {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    Loading payroll data...
+                    Loading payslips...
                   </TableCell>
                 </TableRow>
               ) : filteredPayslips.length === 0 ? (
